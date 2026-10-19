@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -33,6 +35,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,11 +47,13 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import dev.pivisolutions.dictus.R
 import dev.pivisolutions.dictus.core.preferences.PreferenceKeys
+import dev.pivisolutions.dictus.core.premium.PremiumFlags
 import dev.pivisolutions.dictus.core.theme.DictusColors
 import dev.pivisolutions.dictus.core.theme.LocalDictusColors
 import androidx.compose.material3.MaterialTheme
 import dev.pivisolutions.dictus.core.ui.GlassCard
 import dev.pivisolutions.dictus.model.ModelCatalog
+import dev.pivisolutions.dictus.recording.LastTranscriptionStore
 import kotlinx.coroutines.flow.map
 
 /**
@@ -57,27 +64,54 @@ import kotlinx.coroutines.flow.map
  *
  * @param dataStore Application DataStore for reading active model preference.
  * @param onNewDictation Callback for the "Nouvelle dictée" CTA.
+ * @param onOpenHistory Callback for the history entry point (swipe up or tap the hint).
+ * @param historyEnabled Whether the history entry point exists at all. Defaults to the
+ *   premium flag; tests override it to exercise the gated behaviour both ways.
  */
 @Composable
 fun HomeScreen(
     dataStore: DataStore<Preferences>,
     onNewDictation: () -> Unit,
+    onOpenHistory: () -> Unit = {},
+    historyEnabled: Boolean = PremiumFlags.HISTORY_VISIBLE,
 ) {
     val activeModelKey by dataStore.data
         .map { it[PreferenceKeys.ACTIVE_MODEL] ?: ModelCatalog.DEFAULT_KEY }
         .collectAsState(initial = ModelCatalog.DEFAULT_KEY)
 
     val lastTranscription by dataStore.data
-        .map { it[PreferenceKeys.LAST_TRANSCRIPTION] }
+        .map { LastTranscriptionStore.visibleText(it) }
         .collectAsState(initial = null)
 
     val activeModel = ModelCatalog.findByKey(activeModelKey)
     val context = LocalContext.current
+    val historySwipeThresholdPx = with(LocalDensity.current) { 120.dp.toPx() }
 
+    var upwardDrag = 0f
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .testTag("home_screen")
             .background(MaterialTheme.colorScheme.background)
+            .then(
+                if (!historyEnabled) {
+                    Modifier
+                } else {
+                    Modifier.pointerInput(onOpenHistory, historySwipeThresholdPx) {
+                        detectVerticalDragGestures(
+                            onDragStart = { upwardDrag = 0f },
+                            onVerticalDrag = { change, amount ->
+                                if (amount < 0f) upwardDrag -= amount else upwardDrag = 0f
+                                change.consume()
+                            },
+                            onDragEnd = {
+                                if (upwardDrag > historySwipeThresholdPx) onOpenHistory()
+                                upwardDrag = 0f
+                            },
+                        )
+                    }
+                },
+            )
             .padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -221,6 +255,29 @@ fun HomeScreen(
         }
 
         Spacer(modifier = Modifier.weight(1f))
+
+        if (historyEnabled) {
+            Column(
+                modifier = Modifier
+                    .clickable(
+                        onClickLabel = stringResource(R.string.home_history_hint),
+                        onClick = onOpenHistory,
+                    )
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowUp,
+                    contentDescription = null,
+                    tint = DictusColors.Accent,
+                )
+                Text(
+                    text = stringResource(R.string.home_history_hint),
+                    color = LocalDictusColors.current.textSecondary,
+                    fontSize = 13.sp,
+                )
+            }
+        }
     }
 }
 

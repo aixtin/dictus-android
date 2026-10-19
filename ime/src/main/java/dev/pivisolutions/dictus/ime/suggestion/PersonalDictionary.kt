@@ -5,7 +5,12 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import dev.pivisolutions.dictus.core.preferences.PreferenceKeys
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.text.Normalizer
+import java.util.Locale
 
 /**
  * Tracks how often the user types each word and persists a "learned" set via DataStore.
@@ -31,6 +36,9 @@ class PersonalDictionary(
          * and boosted to the front of suggestions.
          */
         const val LEARN_THRESHOLD = 2
+
+        private fun canonicalWord(word: String): String =
+            Normalizer.normalize(word.trim(), Normalizer.Form.NFC).lowercase(Locale.ROOT)
     }
 
     // In-memory counter — reset on IME process restart (acceptable per spec).
@@ -39,11 +47,13 @@ class PersonalDictionary(
 
     /**
      * Set of words the user has typed at least [LEARN_THRESHOLD] times.
-     * Observed by DictionaryEngine for frequency boost ranking.
+     * Observed by suggestion engines for learned-word ranking.
      * Updated reactively when DataStore emits new values.
      */
-    var learnedWords: Set<String> = emptySet()
-        private set
+    private val _learnedWords = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Thread-safe snapshot stream; StateFlow safely publishes collector updates to IO readers. */
+    val learnedWords: StateFlow<Set<String>> = _learnedWords.asStateFlow()
 
     init {
         // Collect DataStore changes reactively — no blocking reads needed in getSuggestions().
@@ -52,7 +62,12 @@ class PersonalDictionary(
         // current without blocking the main thread.
         scope.launch {
             dataStore.data.collect { prefs ->
-                learnedWords = prefs[PreferenceKeys.PERSONAL_DICTIONARY] ?: emptySet()
+                val persisted = prefs[PreferenceKeys.PERSONAL_DICTIONARY]
+                    ?.mapTo(mutableSetOf(), ::canonicalWord)
+                    ?: emptySet()
+                // Keep an explicit rejection visible while its asynchronous DataStore write is
+                // still pending. PersonalDictionary has no removal operation, so union is safe.
+                _learnedWords.value = _learnedWords.value + persisted
             }
         }
     }
@@ -64,17 +79,32 @@ class PersonalDictionary(
      * @param word The word that was committed. Blank/empty inputs are ignored.
      */
     fun recordWordTyped(word: String) {
-        if (word.isBlank()) return
-        val lower = word.lowercase()
-        val count = (typeCount[lower] ?: 0) + 1
-        typeCount[lower] = count
-        if (count >= LEARN_THRESHOLD && !learnedWords.contains(lower)) {
-            scope.launch {
-                dataStore.edit { prefs ->
-                    prefs[PreferenceKeys.PERSONAL_DICTIONARY] =
-                        (prefs[PreferenceKeys.PERSONAL_DICTIONARY] ?: emptySet()) + lower
-                }
+        val canonical = canonicalWord(word)
+        if (canonical.isEmpty()) return
+        val count = (typeCount[canonical] ?: 0) + 1
+        typeCount[canonical] = count
+        if (count >= LEARN_THRESHOLD) learnWord(canonical)
+    }
+
+    /**
+     * Immediately and idempotently protects [word] from correction, then persists it.
+     *
+     * Rejection learning runs directly on the Backspace path. Updating StateFlow before the
+     * asynchronous DataStore edit closes the window where the same rejected word could be
+     * corrected again.
+     */
+    fun learnWord(word: String) {
+        val canonical = canonicalWord(word)
+        if (canonical.isEmpty() || canonical in _learnedWords.value) return
+        _learnedWords.value = _learnedWords.value + canonical
+        scope.launch {
+            dataStore.edit { prefs ->
+                prefs[PreferenceKeys.PERSONAL_DICTIONARY] =
+                    (prefs[PreferenceKeys.PERSONAL_DICTIONARY] ?: emptySet()) + canonical
             }
         }
     }
+
+    fun isLearned(word: String): Boolean = canonicalWord(word) in learnedWords.value
+
 }

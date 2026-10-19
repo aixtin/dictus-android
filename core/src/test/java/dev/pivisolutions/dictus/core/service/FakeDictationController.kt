@@ -16,10 +16,18 @@ class FakeDictationController : DictationController {
     private val _state = MutableStateFlow<DictationState>(DictationState.Idle)
     override val state: StateFlow<DictationState> = _state.asStateFlow()
 
+    private val _engineState = MutableStateFlow<SttEngineState>(SttEngineState.Cold)
+    override val engineState: StateFlow<SttEngineState> = _engineState.asStateFlow()
+
     var startRecordingCallCount = 0; private set
     var stopRecordingCallCount = 0; private set
     var cancelRecordingCallCount = 0; private set
+    var prewarmEngineCallCount = 0; private set
     var stopRecordingResult = FloatArray(0)
+
+    override fun prewarmEngine() {
+        prewarmEngineCallCount++
+    }
 
     override fun startRecording() {
         startRecordingCallCount++
@@ -39,9 +47,11 @@ class FakeDictationController : DictationController {
 
     var confirmAndTranscribeCallCount = 0; private set
     var transcriptionResult: String? = "Fake transcription result. "
+    var lastRetention: TranscriptionRetention? = null; private set
 
-    override suspend fun confirmAndTranscribe(): String? {
+    override suspend fun confirmAndTranscribe(retention: TranscriptionRetention): String? {
         confirmAndTranscribeCallCount++
+        lastRetention = retention
         _state.value = DictationState.Transcribing
         val result = transcriptionResult
         _state.value = DictationState.Idle
@@ -51,5 +61,9 @@ class FakeDictationController : DictationController {
     /** Emit an arbitrary state for test scenarios. */
     fun emitState(state: DictationState) {
         _state.value = state
+    }
+
+    fun emitEngineState(state: SttEngineState) {
+        _engineState.value = state
     }
 }

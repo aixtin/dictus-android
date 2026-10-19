@@ -2,6 +2,7 @@ package dev.pivisolutions.dictus.core.preferences
 
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 
@@ -18,6 +19,8 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 object PreferenceKeys {
     // --- Keyboard settings (Phase 1-2) ---
     val KEYBOARD_LAYOUT = stringPreferencesKey("keyboard_layout")
+    /** Keyboard correction language. Deliberately independent from ASR language. */
+    val KEYBOARD_LANGUAGE = stringPreferencesKey("keyboard_language")
 
     // --- Model settings (Phase 3) ---
     val ACTIVE_MODEL = stringPreferencesKey("active_model")
@@ -28,6 +31,7 @@ object PreferenceKeys {
 
     // --- Audio feedback settings (Phase 4 + Phase 5) ---
     val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
+    val KEY_SOUNDS_ENABLED = booleanPreferencesKey("key_sounds_enabled")
     val SOUND_ENABLED = booleanPreferencesKey("sound_enabled")
     val SOUND_VOLUME = floatPreferencesKey("sound_volume")
     val RECORD_START_SOUND = stringPreferencesKey("record_start_sound")
@@ -39,6 +43,7 @@ object PreferenceKeys {
 
     // --- Last transcription (Phase 4) ---
     val LAST_TRANSCRIPTION = stringPreferencesKey("last_transcription")
+    val LAST_TRANSCRIPTION_SAVED_AT = longPreferencesKey("last_transcription_saved_at")
 
     // --- Keyboard mode (Phase 5) ---
     /** Default keyboard opening mode: "abc" (letters) or "123" (numbers). */
@@ -48,6 +53,9 @@ object PreferenceKeys {
     /** Whether the built-in suggestion bar is enabled. Users can disable if they
      *  experience performance issues or prefer typing without suggestions. */
     val SUGGESTIONS_ENABLED = booleanPreferencesKey("suggestions_enabled")
+
+    /** Whether automatic replacement on word boundaries is enabled. Independent of the bar. */
+    val AUTOCORRECT_ENABLED = booleanPreferencesKey("autocorrect_enabled")
 
     // --- Personal dictionary (Phase 8) ---
     /** Set of words the user has typed at least twice, persisted across restarts. */

@@ -1,8 +1,17 @@
 package dev.pivisolutions.dictus.service
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import kotlin.concurrent.thread
 
 class AudioCaptureManagerTest {
 
@@ -98,5 +107,67 @@ class AudioCaptureManagerTest {
         val history = manager.getEnergyHistory()
         assertEquals(5f, history.first(), 0.0001f)
         assertEquals(34f, history.last(), 0.0001f)
+    }
+
+    @Test
+    fun `energy history snapshots stay valid during concurrent updates`() {
+        val start = CountDownLatch(1)
+        val failures = ConcurrentLinkedQueue<Throwable>()
+        val writers = List(2) { writerIndex ->
+            thread(start = true) {
+                start.await()
+                repeat(100_000) { index ->
+                    runCatching {
+                        manager.addEnergyToHistory((writerIndex + index).toFloat())
+                    }.exceptionOrNull()?.let(failures::add)
+                }
+            }
+        }
+        val readers = List(2) {
+            thread(start = true) {
+                start.await()
+                repeat(100_000) {
+                    runCatching {
+                        val snapshot = manager.getEnergyHistory()
+                        assertEquals(30, snapshot.size)
+                        snapshot.forEach { energy -> assertTrue(energy.isFinite()) }
+                    }.exceptionOrNull()?.let(failures::add)
+                }
+            }
+        }
+
+        start.countDown()
+        (writers + readers).forEach { worker ->
+            worker.join(10_000)
+            assertTrue("Concurrent history worker did not finish", !worker.isAlive)
+        }
+
+        assertTrue("Concurrent history access failed: ${failures.firstOrNull()}", failures.isEmpty())
+    }
+
+    @Test
+    fun `stop waits for final read reaching exact minimum sample count`() = runBlocking {
+        assertFinalReadIsIncluded(RecordingDurationPolicy.MINIMUM_SAMPLE_COUNT)
+    }
+
+    @Test
+    fun `stop waits for final read above minimum sample count`() = runBlocking {
+        assertFinalReadIsIncluded(RecordingDurationPolicy.MINIMUM_SAMPLE_COUNT + 1)
+    }
+
+    private suspend fun assertFinalReadIsIncluded(finalSampleCount: Int) {
+        val stopSignal = CompletableDeferred<Unit>()
+        val collectedSamples = ArrayList<Float>()
+        val captureJob = CoroutineScope(Dispatchers.Default).launch {
+            stopSignal.await()
+            // Model a blocking AudioRecord read that completes only after stop().
+            delay(20)
+            repeat(finalSampleCount) { collectedSamples.add(0.1f) }
+        }
+
+        manager.stopCaptureAndAwait(captureJob) { stopSignal.complete(Unit) }
+
+        assertEquals(finalSampleCount, collectedSamples.size)
+        assertTrue(RecordingDurationPolicy.canTranscribe(collectedSamples.size))
     }
 }

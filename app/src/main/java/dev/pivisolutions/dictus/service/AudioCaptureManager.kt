@@ -1,6 +1,7 @@
 package dev.pivisolutions.dictus.service
 
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import kotlinx.coroutines.CoroutineScope
@@ -8,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import timber.log.Timber
 import kotlin.math.sqrt
 
@@ -25,10 +27,12 @@ import kotlin.math.sqrt
  * WHY 16kHz: Whisper models expect 16kHz mono audio. Capturing at this rate
  * avoids resampling.
  */
-class AudioCaptureManager {
+class AudioCaptureManager(
+    private val audioManager: AudioManager? = null,
+) {
 
     companion object {
-        private const val SAMPLE_RATE = 16000
+        private const val SAMPLE_RATE = RecordingDurationPolicy.SAMPLE_RATE_HZ
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_FLOAT
         private const val MAX_ENERGY_HISTORY = 30
@@ -80,8 +84,14 @@ class AudioCaptureManager {
                 recorder = null
                 return
             }
+            val routeResult = audioManager?.let { manager ->
+                preferBuiltInMicrophone(AndroidAudioInputRouteBackend(manager, rec))
+            } ?: AudioInputRouteResult.NoBuiltInMic
             rec.startRecording()
-            Timber.d("AudioRecord started: ${SAMPLE_RATE}Hz mono Float32, buffer=$bufferSize")
+            Timber.d(
+                "AudioRecord started: ${SAMPLE_RATE}Hz mono Float32, buffer=$bufferSize, " +
+                    "inputPreference=$routeResult, routedType=${rec.routedDevice?.type ?: "unknown"}",
+            )
         }
 
         // Read loop on a background thread.
@@ -91,17 +101,16 @@ class AudioCaptureManager {
             val readBuffer = FloatArray(minBufferSize / 4) // Float = 4 bytes
             while (isActive) {
                 val read = recorder?.read(readBuffer, 0, readBuffer.size, AudioRecord.READ_BLOCKING) ?: break
-                if (read > 0) {
-                    synchronized(samples) {
-                        for (i in 0 until read) {
-                            samples.add(readBuffer[i])
-                        }
+                if (read <= 0) break
+                synchronized(samples) {
+                    for (i in 0 until read) {
+                        samples.add(readBuffer[i])
                     }
-                    val rms = calculateRmsEnergy(readBuffer, read)
-                    val normalized = normalizeEnergy(rms)
-                    addEnergyToHistory(normalized)
-                    onEnergyUpdate?.invoke(normalized)
                 }
+                val rms = calculateRmsEnergy(readBuffer, read)
+                val normalized = normalizeEnergy(rms)
+                addEnergyToHistory(normalized)
+                onEnergyUpdate?.invoke(normalized)
             }
         }
     }
@@ -112,10 +121,11 @@ class AudioCaptureManager {
      * @return FloatArray of all captured samples at 16kHz mono.
      */
     fun stop(): FloatArray {
-        captureJob?.cancel()
+        val job = captureJob
+        val activeRecorder = recorder
+        stopCaptureAndAwait(job) { activeRecorder?.stop() }
         captureJob = null
-        recorder?.stop()
-        recorder?.release()
+        activeRecorder?.release()
         recorder = null
         Timber.d("AudioRecord stopped, captured ${samples.size} samples")
         val result: FloatArray
@@ -131,10 +141,12 @@ class AudioCaptureManager {
      * Cancel capturing and discard all audio data.
      */
     fun cancel() {
-        captureJob?.cancel()
+        val job = captureJob
+        val activeRecorder = recorder
+        job?.cancel()
+        stopCaptureAndAwait(job) { activeRecorder?.stop() }
         captureJob = null
-        recorder?.stop()
-        recorder?.release()
+        activeRecorder?.release()
         recorder = null
         synchronized(samples) {
             samples.clear()
@@ -188,9 +200,11 @@ class AudioCaptureManager {
      * for the 30-bar waveform visualization.
      */
     fun addEnergyToHistory(energy: Float) {
-        energyHistory.addLast(energy)
-        if (energyHistory.size > MAX_ENERGY_HISTORY) {
-            energyHistory.removeFirst()
+        synchronized(energyHistory) {
+            energyHistory.addLast(energy)
+            if (energyHistory.size > MAX_ENERGY_HISTORY) {
+                energyHistory.removeFirst()
+            }
         }
     }
 
@@ -199,7 +213,9 @@ class AudioCaptureManager {
      *
      * @return Immutable list of up to 30 normalized energy values.
      */
-    fun getEnergyHistory(): List<Float> = energyHistory.toList()
+    fun getEnergyHistory(): List<Float> = synchronized(energyHistory) {
+        energyHistory.toList()
+    }
 
     /**
      * Reset energy history to 30 zero entries.
@@ -207,7 +223,22 @@ class AudioCaptureManager {
      * instead of bars sliding in from the left.
      */
     private fun resetEnergyHistory() {
-        energyHistory.clear()
-        repeat(MAX_ENERGY_HISTORY) { energyHistory.addLast(0f) }
+        synchronized(energyHistory) {
+            energyHistory.clear()
+            repeat(MAX_ENERGY_HISTORY) { energyHistory.addLast(0f) }
+        }
+    }
+
+    /**
+     * Stop the recorder before waiting for the capture loop. AudioRecord.stop()
+     * releases a blocking read, allowing its final chunk to be appended before
+     * the caller snapshots [samples]. The controller API is synchronous, so the
+     * short join is intentionally bridged here rather than exposing a racy result.
+     */
+    internal fun stopCaptureAndAwait(job: Job?, stopRecorder: () -> Unit) {
+        stopRecorder()
+        if (job != null) {
+            runBlocking { job.join() }
+        }
     }
 }

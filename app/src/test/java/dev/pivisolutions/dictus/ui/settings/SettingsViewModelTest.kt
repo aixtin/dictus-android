@@ -3,7 +3,9 @@ package dev.pivisolutions.dictus.ui.settings
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.edit
 import androidx.test.core.app.ApplicationProvider
+import dev.pivisolutions.dictus.core.preferences.PreferenceKeys
 import dev.pivisolutions.dictus.model.ModelCatalog
 import dev.pivisolutions.dictus.model.ModelManager
 import kotlinx.coroutines.Dispatchers
@@ -77,6 +79,42 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `keyboard language defaults to French and survives ViewModel restart`() = testScope.runTest {
+        assertEquals("fr", viewModel.keyboardLanguage.value)
+        viewModel.setKeyboardLanguage("en")
+        advanceUntilIdle()
+        assertEquals("en", viewModel.keyboardLanguage.value)
+
+        val restarted = SettingsViewModel(fakeDataStore, modelManager)
+        advanceUntilIdle()
+        assertEquals("en", restarted.keyboardLanguage.value)
+    }
+
+    @Test
+    fun `keyboard language is independent from ASR and preserves explicit layout`() = testScope.runTest {
+        viewModel.setLanguage("auto")
+        viewModel.setKeyboardLayout("azerty")
+        viewModel.setKeyboardLanguage("en")
+        advanceUntilIdle()
+
+        assertEquals("auto", viewModel.language.value)
+        assertEquals("en", viewModel.keyboardLanguage.value)
+        assertEquals("azerty", viewModel.keyboardLayout.value)
+    }
+
+    @Test
+    fun `profile layout default follows keyboard language when layout is absent`() = testScope.runTest {
+        viewModel.setKeyboardLanguage("en")
+        advanceUntilIdle()
+        assertEquals("qwerty", viewModel.keyboardLayout.value)
+
+        fakeDataStore.edit { it[PreferenceKeys.KEYBOARD_LANGUAGE] = "unknown" }
+        advanceUntilIdle()
+        assertEquals("fr", viewModel.keyboardLanguage.value)
+        assertEquals("azerty", viewModel.keyboardLayout.value)
+    }
+
+    @Test
     fun `activeModel defaults to tiny`() = testScope.runTest {
         assertEquals(ModelCatalog.DEFAULT_KEY, viewModel.activeModel.value)
     }
@@ -89,6 +127,30 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `autocorrect has a dedicated enabled-by-default persisted preference`() = testScope.runTest {
+        assertEquals("autocorrect_enabled", PreferenceKeys.AUTOCORRECT_ENABLED.name)
+        assertTrue(viewModel.autocorrectEnabled.value)
+
+        viewModel.toggleAutocorrect()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.autocorrectEnabled.value)
+        assertTrue(viewModel.suggestionsEnabled.value)
+        val restarted = SettingsViewModel(fakeDataStore, modelManager)
+        advanceUntilIdle()
+        assertFalse(restarted.autocorrectEnabled.value)
+    }
+
+    @Test
+    fun `suggestions toggle does not change autocorrect`() = testScope.runTest {
+        viewModel.toggleSuggestions()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.suggestionsEnabled.value)
+        assertTrue(viewModel.autocorrectEnabled.value)
+    }
+
+    @Test
     fun `hapticsEnabled defaults to true`() = testScope.runTest {
         assertTrue(viewModel.hapticsEnabled.value)
     }
@@ -98,6 +160,18 @@ class SettingsViewModelTest {
         viewModel.toggleHaptics()
         advanceUntilIdle()
         assertFalse(viewModel.hapticsEnabled.value)
+    }
+
+    @Test
+    fun `keySoundsEnabled defaults to true`() = testScope.runTest {
+        assertTrue(viewModel.keySoundsEnabled.value)
+    }
+
+    @Test
+    fun `toggleKeySounds flips keySoundsEnabled to false`() = testScope.runTest {
+        viewModel.toggleKeySounds()
+        advanceUntilIdle()
+        assertFalse(viewModel.keySoundsEnabled.value)
     }
 
     @Test

@@ -14,8 +14,9 @@
 
     <!-- Onboarding: Keyboard setup screen (Step 3) -->
     <string name="onboarding_keyboard_setup_title">Ajouter le clavier</string>
-    <string name="onboarding_keyboard_setup_body">Activez le clavier Dictus dans les r\u00e9glages de votre appareil.</string>
-    <string name="onboarding_keyboard_setup_cta_open_settings">Ouvrir les R\u00e9glages</string>
+    <string name="onboarding_keyboard_setup_body">Activez le clavier Dictus dans les paramètres de votre appareil.</string>
+    <string name="onboarding_keyboard_setup_cta_open_settings">Ouvrir les paramètres</string>
+    <string name="onboarding_keyboard_setup_cta_select">Sélectionner Dictus</string>
     <string name="onboarding_keyboard_setup_cta_continue">Continuer</string>
 
     <!-- Onboarding: Mode selection screen (Step 4) -->
@@ -61,9 +62,12 @@
     <!-- Settings: Row labels -->
     <string name="settings_language">Langue</string>
     <string name="settings_keyboard_layout">Disposition du clavier</string>
+    <string name="settings_keyboard_language">Langue du clavier</string>
     <string name="settings_default_mode">Mode par d\u00e9faut</string>
     <string name="settings_haptic_feedback">Retour haptique</string>
+    <string name="settings_keyboard_sounds">Sons du clavier</string>
     <string name="settings_suggestions">Suggestions</string>
+    <string name="settings_autocorrect">Correction automatique</string>
     <string name="settings_sounds">Sons</string>
     <string name="settings_theme">Th\u00e8me</string>
     <string name="settings_version">Version</string>
@@ -93,6 +97,7 @@
     <!-- Settings: Picker bottom sheet titles -->
     <string name="picker_language_title">Choisir la langue</string>
     <string name="picker_keyboard_layout_title">Disposition du clavier</string>
+    <string name="picker_keyboard_language_title">Langue du clavier</string>
     <string name="picker_default_mode_title">Mode par d\u00e9faut du clavier</string>
     <string name="picker_theme_title">Th\u00e8me de l\'application</string>
 
@@ -171,6 +176,30 @@
     <string name="home_last_transcription">Derni\u00e8re transcription</string>
     <string name="home_copy_cd">Copier</string>
     <string name="home_new_dictation">Nouvelle dict\u00e9e</string>
+    <string name="home_history_hint">Balayez vers le haut pour l\u2019historique</string>
+
+    <!-- HistoryScreen -->
+    <string name="history_title">Historique</string>
+    <string name="history_back_cd">Retour</string>
+    <string name="history_empty">Votre historique de transcriptions est vide.</string>
+    <string name="history_language_automatic">Automatique</string>
+    <string name="history_metadata">%1$s · %2$s · %3$s</string>
+    <plurals name="history_duration_seconds">
+        <item quantity="one">%d seconde</item>
+        <item quantity="other">%d secondes</item>
+    </plurals>
+    <string name="history_delete_cd">Supprimer la transcription</string>
+    <string name="history_delete_title">Supprimer cette transcription\u00a0?</string>
+    <string name="history_delete_body">Cette action est irr\u00e9versible.</string>
+    <string name="history_delete_confirm">Supprimer</string>
+    <string name="history_delete_cancel">Annuler</string>
+    <string name="history_error">L\u2019historique est indisponible. Veuillez r\u00e9essayer.</string>
+    <string name="history_detail_title">Transcription</string>
+    <string name="history_copy_cd">Copier la transcription</string>
+    <string name="history_share_cd">Partager la transcription</string>
+    <string name="history_copied">Transcription copi\u00e9e</string>
+    <string name="history_clip_label">Transcription Dictus</string>
+    <string name="history_share_title">Partager la transcription</string>
 
     <!-- RecordingScreen -->
     <string name="recording_result_title">R\u00e9sultat</string>

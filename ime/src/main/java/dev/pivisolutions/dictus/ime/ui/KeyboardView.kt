@@ -11,6 +11,10 @@ import androidx.compose.material3.MaterialTheme
 import dev.pivisolutions.dictus.ime.model.KeyDefinition
 import dev.pivisolutions.dictus.ime.model.KeyboardLayer
 import dev.pivisolutions.dictus.ime.model.KeyboardLayouts
+import dev.pivisolutions.dictus.ime.model.KeyType
+import dev.pivisolutions.dictus.ime.model.FrenchAdaptiveKey
+import dev.pivisolutions.dictus.ime.language.LanguageProfile
+import dev.pivisolutions.dictus.ime.language.frenchLanguageProfile
 
 /**
  * Renders the keyboard rows for the currently active layer.
@@ -26,16 +30,29 @@ fun KeyboardView(
     isShifted: Boolean,
     isCapsLock: Boolean = false,
     layout: String,
+    languageProfile: LanguageProfile = frenchLanguageProfile,
     onKeyPress: (KeyDefinition) -> Unit,
+    onDeleteWord: () -> Unit = {},
     onAccentSelected: (String) -> Unit,
     hapticsEnabled: Boolean = true,
+    onKeySound: (KeyType) -> Unit = {},
+    labelsVisible: Boolean = true,
+    onTrackpadActiveChange: (Boolean) -> Unit = {},
+    onTrackpadMove: (Int) -> Unit = {},
+    frenchAdaptiveKeyState: FrenchAdaptiveKey.State = FrenchAdaptiveKey.DEFAULT,
+    onFrenchAdaptiveVariant: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val rows = when (layer) {
+    val baseRows = when (layer) {
         KeyboardLayer.LETTERS -> KeyboardLayouts.lettersForLayout(layout)
         KeyboardLayer.NUMBERS -> KeyboardLayouts.numbersRows
         KeyboardLayer.SYMBOLS -> KeyboardLayouts.symbolsRows
     }
+    val rows = KeyboardLayouts.localizeUtilityLabels(
+        baseRows,
+        languageProfile.spaceLabel,
+        languageProfile.returnLabel,
+    )
 
     Column(
         modifier = modifier
@@ -49,8 +66,16 @@ fun KeyboardView(
                 isShifted = isShifted,
                 isCapsLock = isCapsLock,
                 onKeyPress = onKeyPress,
+                onDeleteWord = onDeleteWord,
                 onAccentSelected = onAccentSelected,
+                accentMap = languageProfile.accentMap,
                 hapticsEnabled = hapticsEnabled,
+                onKeySound = onKeySound,
+                labelsVisible = labelsVisible,
+                onTrackpadActiveChange = onTrackpadActiveChange,
+                onTrackpadMove = onTrackpadMove,
+                frenchAdaptiveKeyState = frenchAdaptiveKeyState,
+                onFrenchAdaptiveVariant = onFrenchAdaptiveVariant,
             )
         }
     }

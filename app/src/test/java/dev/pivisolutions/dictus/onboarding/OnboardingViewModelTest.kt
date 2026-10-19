@@ -2,6 +2,7 @@ package dev.pivisolutions.dictus.onboarding
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.lifecycle.SavedStateHandle
 import dev.pivisolutions.dictus.core.preferences.PreferenceKeys
@@ -11,6 +12,7 @@ import dev.pivisolutions.dictus.service.ModelDownloader
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -66,10 +68,6 @@ class OnboardingViewModelTest {
         assertEquals("azerty", viewModel.selectedLayout.value)
     }
 
-    @Test
-    fun `initial state - imeActivated is false`() = runTest(testDispatcher) {
-        assertFalse(viewModel.imeActivated.value)
-    }
 
     @Test
     fun `initial state - downloadProgress is -1`() = runTest(testDispatcher) {
@@ -105,16 +103,6 @@ class OnboardingViewModelTest {
         assertTrue(restoredVm.micPermissionGranted.value)
     }
 
-    @Test
-    fun `savedStateHandle - restores imeActivated from saved state`() = runTest(testDispatcher) {
-        val restoredVm = OnboardingViewModel(
-            context,
-            fakeDataStore,
-            fakeDownloader,
-            SavedStateHandle(mapOf("imeActivated" to true)),
-        )
-        assertTrue(restoredVm.imeActivated.value)
-    }
 
     @Test
     fun `savedStateHandle - advanceStep writes to savedStateHandle`() = runTest(testDispatcher) {
@@ -230,11 +218,6 @@ class OnboardingViewModelTest {
             assertTrue(viewModel.micPermissionGranted.value)
         }
 
-    @Test
-    fun `setImeActivated true sets imeActivated to true`() = runTest(testDispatcher) {
-        viewModel.setImeActivated(true)
-        assertTrue(viewModel.imeActivated.value)
-    }
 
     // --- Download ---
 
@@ -253,6 +236,49 @@ class OnboardingViewModelTest {
 
             assertEquals(100, viewModel.downloadProgress.value)
             assertTrue(viewModel.modelDownloadComplete.value)
+        }
+
+    @Test
+    fun `successful download selects recommended model before test recording`() =
+        runTest(testDispatcher) {
+            fakeDownloader.nextFlow = flowOf(DownloadProgress.Complete("/path/to/model"))
+
+            viewModel.startModelDownload()
+            advanceUntilIdle()
+
+            val activeModel = fakeDataStore.data.first()[PreferenceKeys.ACTIVE_MODEL]
+            assertEquals(viewModel.recommendedKey, activeModel)
+        }
+
+    @Test
+    fun `failed download does not change active model`() =
+        runTest(testDispatcher) {
+            fakeDataStore.edit { prefs ->
+                prefs[PreferenceKeys.ACTIVE_MODEL] = "existing-model"
+            }
+            fakeDownloader.nextFlow = flowOf(DownloadProgress.Error("Network failure"))
+
+            viewModel.startModelDownload()
+            advanceUntilIdle()
+
+            val activeModel = fakeDataStore.data.first()[PreferenceKeys.ACTIVE_MODEL]
+            assertEquals("existing-model", activeModel)
+        }
+
+    @Test
+    fun `incomplete download does not change active model`() =
+        runTest(testDispatcher) {
+            fakeDataStore.edit { prefs ->
+                prefs[PreferenceKeys.ACTIVE_MODEL] = "existing-model"
+            }
+            fakeDownloader.nextFlow = flowOf(DownloadProgress.Progress(50))
+
+            viewModel.startModelDownload()
+            advanceUntilIdle()
+
+            val activeModel = fakeDataStore.data.first()[PreferenceKeys.ACTIVE_MODEL]
+            assertEquals("existing-model", activeModel)
+            assertFalse(viewModel.modelDownloadComplete.value)
         }
 
     @Test

@@ -1,21 +1,16 @@
 package dev.pivisolutions.dictus.navigation
 
-import android.content.Context
-import android.provider.Settings
-import android.view.inputmethod.InputMethodManager
 import androidx.compose.foundation.background
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -27,6 +22,8 @@ import dev.pivisolutions.dictus.core.preferences.PreferenceKeys
 import dev.pivisolutions.dictus.core.service.DictationController
 import androidx.compose.material3.MaterialTheme
 import dev.pivisolutions.dictus.home.HomeScreen
+import dev.pivisolutions.dictus.core.premium.PremiumFlags
+import dev.pivisolutions.dictus.history.HistoryRoute
 import dev.pivisolutions.dictus.models.ModelsScreen
 import dev.pivisolutions.dictus.onboarding.OnboardingKeyboardSetupScreen
 import dev.pivisolutions.dictus.recording.RecordingScreen
@@ -76,11 +73,29 @@ fun AppNavHost(
     imeEnabled: Boolean,
     imeSelected: Boolean,
     onOpenKeyboardSettings: () -> Unit,
+    onShowKeyboardPicker: () -> Unit,
     onOpenAppSettings: () -> Unit,
+    openSettingsRequested: Boolean = false,
 ) {
     val hasCompletedOnboarding by dataStore.data
         .map { it[PreferenceKeys.HAS_COMPLETED_ONBOARDING] ?: false }
         .collectAsState(initial = null)
+
+    if (openSettingsRequested) {
+        // The IME entry point intentionally has no bottom navigation. This allows Settings and
+        // its child screens without exposing Home/Models or mutating onboarding completion.
+        MainTabsScreen(
+            dataStore = dataStore,
+            dictationController = dictationController,
+            imeEnabled = imeEnabled,
+            imeSelected = imeSelected,
+            onOpenKeyboardSettings = onOpenKeyboardSettings,
+            onOpenAppSettings = onOpenAppSettings,
+            startDestination = AppDestination.Settings.route,
+            showMainNavigation = false,
+        )
+        return
+    }
 
     when (hasCompletedOnboarding) {
         null -> {
@@ -93,7 +108,13 @@ fun AppNavHost(
         }
         false -> {
             // Onboarding not complete — show the full 7-step onboarding flow
-            OnboardingScreen(dictationController = dictationController)
+            OnboardingScreen(
+                dictationController = dictationController,
+                imeEnabled = imeEnabled,
+                imeSelected = imeSelected,
+                onOpenKeyboardSettings = onOpenKeyboardSettings,
+                onShowKeyboardPicker = onShowKeyboardPicker,
+            )
         }
         true -> {
             MainTabsScreen(
@@ -123,18 +144,21 @@ fun AppNavHost(
  * the transitions are purely sequential. A simple when keeps the code easy to read and
  * avoids navigation graph complexity for a one-time, non-navigable flow.
  *
- * WHY LaunchedEffect for IME check: IME status must be re-checked when the user returns
- * from system settings. The context and imeEnabled/imeSelected values from MainActivity
- * are not directly available here, so we check via the Settings.Secure API on step 3.
+ * IME state comes from MainActivity, which re-reads Android's system state after settings
+ * and picker round trips. The system remains the source of truth across process recreation.
  */
 @Composable
-private fun OnboardingScreen(dictationController: DictationController?) {
+private fun OnboardingScreen(
+    dictationController: DictationController?,
+    imeEnabled: Boolean,
+    imeSelected: Boolean,
+    onOpenKeyboardSettings: () -> Unit,
+    onShowKeyboardPicker: () -> Unit,
+) {
     val viewModel: OnboardingViewModel = hiltViewModel()
-    val context = LocalContext.current
 
     val currentStep by viewModel.currentStep.collectAsState()
     val micGranted by viewModel.micPermissionGranted.collectAsState()
-    val imeActivated by viewModel.imeActivated.collectAsState()
     val selectedLayout by viewModel.selectedLayout.collectAsState()
     val downloadProgress by viewModel.downloadProgress.collectAsState()
     val downloadComplete by viewModel.modelDownloadComplete.collectAsState()
@@ -143,27 +167,6 @@ private fun OnboardingScreen(dictationController: DictationController?) {
     val recommendedModel = viewModel.recommendedModelInfo
     val modelSizeMb = recommendedModel.expectedSizeBytes / (1024 * 1024)
 
-    // Re-check IME status on step 3: both when entering the step AND when returning
-    // from system Settings (onResume). Without the lifecycle check, the user enables Dictus
-    // in Settings but the onboarding doesn't detect it.
-    // WHY InputMethodManager (not Settings.Secure.ENABLED_INPUT_METHODS): Android 15 (SDK 35)
-    // throws SecurityException when reading ENABLED_INPUT_METHODS directly.
-    LaunchedEffect(currentStep) {
-        if (currentStep == 3) {
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            val isEnabled = imm.enabledInputMethodList.any { it.packageName == context.packageName }
-            viewModel.setImeActivated(isEnabled)
-        }
-    }
-
-    // Re-check on resume (user returns from system Settings after enabling Dictus)
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        if (currentStep == 3) {
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            val isEnabled = imm.enabledInputMethodList.any { it.packageName == context.packageName }
-            viewModel.setImeActivated(isEnabled)
-        }
-    }
 
     when (currentStep) {
         1 -> OnboardingWelcomeScreen(
@@ -175,12 +178,10 @@ private fun OnboardingScreen(dictationController: DictationController?) {
             onNext = { viewModel.advanceStep() },
         )
         3 -> OnboardingKeyboardSetupScreen(
-            imeActivated = imeActivated,
-            onOpenSettings = {
-                val intent = android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)
-                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
-            },
+            imeEnabled = imeEnabled,
+            imeSelected = imeSelected,
+            onOpenSettings = onOpenKeyboardSettings,
+            onOpenPicker = onShowKeyboardPicker,
             onNext = { viewModel.advanceStep() },
         )
         4 -> OnboardingModeSelectionScreen(
@@ -228,6 +229,8 @@ private fun MainTabsScreen(
     imeSelected: Boolean,
     onOpenKeyboardSettings: () -> Unit,
     onOpenAppSettings: () -> Unit,
+    startDestination: String = AppDestination.Home.route,
+    showMainNavigation: Boolean = true,
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -236,7 +239,9 @@ private fun MainTabsScreen(
     // Hide the bottom nav bar when on the Recording screen so it gets full-screen immersion.
     // WHY conditional (not AnimatedVisibility): simple show/hide is sufficient here; there
     // is no animation spec for the nav bar in the design.
-    val showBottomBar = currentRoute != AppDestination.Recording.route &&
+    val showBottomBar = showMainNavigation &&
+        currentRoute != AppDestination.Recording.route &&
+        currentRoute != AppDestination.History.route &&
         currentRoute != AppDestination.Licences.route &&
         currentRoute != AppDestination.DebugLogs.route &&
         currentRoute != AppDestination.SoundSettings.route &&
@@ -263,7 +268,7 @@ private fun MainTabsScreen(
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = AppDestination.Home.route,
+            startDestination = startDestination,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
@@ -274,7 +279,24 @@ private fun MainTabsScreen(
                     onNewDictation = {
                         navController.navigate(AppDestination.Recording.route)
                     },
+                    onOpenHistory = {
+                        navController.navigate(AppDestination.History.route) { launchSingleTop = true }
+                    },
                 )
+            }
+            // History is a Pro feature that has not shipped yet: while the flag is off the
+            // route is never registered, so no navigation can reach the screen even by
+            // mistake. The implementation stays compiled and unit-tested behind it.
+            if (PremiumFlags.HISTORY_VISIBLE) {
+                composable(
+                    route = AppDestination.History.route,
+                    enterTransition = { slideInVertically(initialOffsetY = { it }) },
+                    exitTransition = { slideOutVertically(targetOffsetY = { it }) },
+                    popEnterTransition = { slideInVertically(initialOffsetY = { -it }) },
+                    popExitTransition = { slideOutVertically(targetOffsetY = { it }) },
+                ) {
+                    HistoryRoute(onBack = { navController.popBackStack() })
+                }
             }
             composable(AppDestination.Models.route) {
                 ModelsScreen()

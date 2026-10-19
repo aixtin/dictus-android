@@ -5,29 +5,75 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.os.IBinder
 import android.view.KeyEvent
+import android.view.inputmethod.EditorInfo
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import dagger.hilt.android.EntryPointAccessors
 import dev.pivisolutions.dictus.core.preferences.PreferenceKeys
 import dev.pivisolutions.dictus.core.service.DictationController
 import dev.pivisolutions.dictus.core.service.DictationState
+import dev.pivisolutions.dictus.core.service.MicGateCommand
+import dev.pivisolutions.dictus.core.service.PendingMicGate
+import dev.pivisolutions.dictus.core.service.SttEngineState
+import dev.pivisolutions.dictus.core.logging.PrivacySafeLog
+import dev.pivisolutions.dictus.core.navigation.AppLaunchContract
+import dev.pivisolutions.dictus.core.navigation.SettingsLaunchAuthorization
 import dev.pivisolutions.dictus.core.theme.DictusTheme
 import dev.pivisolutions.dictus.core.theme.ThemeMode
 import dev.pivisolutions.dictus.core.ui.WaveformDriver
+import dev.pivisolutions.dictus.core.ui.ModelLoadingOverlay
+import dev.pivisolutions.dictus.ime.audio.KeyboardSoundPlayer
 import dev.pivisolutions.dictus.ime.di.DictusImeEntryPoint
-import dev.pivisolutions.dictus.ime.suggestion.DictionaryEngine
-import dev.pivisolutions.dictus.ime.suggestion.SuggestionEngine
+import dev.pivisolutions.dictus.ime.suggestion.AndroidNativeTrieOpener
+import dev.pivisolutions.dictus.ime.suggestion.NativeTrieSuggestionEngine
+import dev.pivisolutions.dictus.ime.ui.ImeOverlayHost
 import dev.pivisolutions.dictus.ime.ui.KeyboardScreen
+import dev.pivisolutions.dictus.ime.ui.SuggestionPresentationMode
 import dev.pivisolutions.dictus.ime.ui.RecordingScreen
 import dev.pivisolutions.dictus.ime.ui.TranscribingScreen
+import dev.pivisolutions.dictus.ime.input.AutocorrectInputCoordinator
+import dev.pivisolutions.dictus.ime.input.AutocorrectRuntimePolicy
+import dev.pivisolutions.dictus.ime.input.AutocorrectSuggestionSnapshot
+import dev.pivisolutions.dictus.ime.input.CorrectionContextExtractor
+import dev.pivisolutions.dictus.ime.input.CorrectionLanguageIdentity
+import dev.pivisolutions.dictus.ime.input.EditorEligibilityPolicy
+import dev.pivisolutions.dictus.ime.input.InputConnectionAutocorrectEditor
+import dev.pivisolutions.dictus.ime.input.NextWordPredictionCoordinator
+import dev.pivisolutions.dictus.ime.input.NextWordPredictionInsertResult
+import dev.pivisolutions.dictus.ime.input.NextWordPredictionToken
+import dev.pivisolutions.dictus.ime.input.AutocorrectSpaceDiagnosis
+import dev.pivisolutions.dictus.ime.input.AutocorrectSpaceResult
+import dev.pivisolutions.dictus.ime.input.ImeServicePrivacyPolicy
+import dev.pivisolutions.dictus.ime.input.ImeTranscriptionRetentionSession
+import dev.pivisolutions.dictus.ime.input.PersonalizedLearningEntryPoint
+import dev.pivisolutions.dictus.ime.input.deletePrecedingCodePoint
+import dev.pivisolutions.dictus.ime.input.deletePrecedingWord
+import dev.pivisolutions.dictus.ime.input.moveCursorBy
+import dev.pivisolutions.dictus.ime.input.applyFrenchAdaptiveKey
+import dev.pivisolutions.dictus.ime.input.applyFrenchAdaptiveVariant
+import dev.pivisolutions.dictus.ime.input.readFrenchAdaptiveKeyState
+import dev.pivisolutions.dictus.ime.model.FrenchAdaptiveKey
+import dev.pivisolutions.dictus.ime.language.KeyboardLayout
+import dev.pivisolutions.dictus.ime.language.KeyboardPreferenceResolver
+import dev.pivisolutions.dictus.ime.language.SupportedLanguage
+import dev.pivisolutions.dictus.ime.language.cycleKeyboardLanguage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -57,6 +103,9 @@ class DictusImeService : LifecycleInputMethodService() {
         /** Fully-qualified class name of DictationService in the app module. */
         private const val DICTATION_SERVICE_CLASS =
             "dev.pivisolutions.dictus.service.DictationService"
+
+        /** Spaces between autocorrect tally reports — roughly one line per sentence typed. */
+        private const val AUTOCORRECT_REPORT_INTERVAL = 25
     }
 
     private val entryPoint: DictusImeEntryPoint by lazy {
@@ -66,38 +115,81 @@ class DictusImeService : LifecycleInputMethodService() {
         )
     }
 
+    private val keyboardSoundPlayer: KeyboardSoundPlayer by lazy {
+        KeyboardSoundPlayer(getSystemService(AUDIO_SERVICE) as AudioManager)
+    }
+
     // Service binding state
     private var dictationController: DictationController? = null
     private var isBound = false
     private var stateCollectionJob: Job? = null
+    private var engineCollectionJob: Job? = null
     private val bindingScope = MainScope()
 
     // Local mirror of the DictationService state, observed by Compose via collectAsState().
     // This MutableStateFlow is updated by collecting the service's StateFlow after binding.
     private val _serviceState = MutableStateFlow<DictationState>(DictationState.Idle)
+    private val _engineState = MutableStateFlow<SttEngineState>(SttEngineState.Cold)
 
     // Emoji picker visibility state, hoisted here so back key can dismiss it via onKeyDown.
     // BackHandler (Compose) does not work in IME context -- back key is not dispatched through
     // the Compose back handler stack in an InputMethodService.
     private val _isEmojiPickerOpen = MutableStateFlow(false)
 
+    // Transient editor-derived state only. Context text is never logged or persisted.
+    private val _frenchAdaptiveKeyState = MutableStateFlow(FrenchAdaptiveKey.DEFAULT)
+    private var isEditorSelectionCollapsed = false
+    private var isCurrentEditorSuggestionEligible = false
+    private var isPersonalizedLearningAllowed = false
+    private val transcriptionRetentionSession = ImeTranscriptionRetentionSession()
+
     // Whether the built-in suggestion bar is enabled. Observed from DataStore
     // so the user can toggle it in settings without restarting the IME.
     private val _suggestionsEnabled = MutableStateFlow(true)
+    private val _autocorrectEnabled = MutableStateFlow(true)
+    private var autocorrectPreference: Boolean? = null
 
-    // Production suggestion engine: loads AOSP FR/EN dictionary from assets on
-    // Dispatchers.IO, performs accent-insensitive prefix matching with frequency
-    // ranking, and boosts personal dictionary words. Until dictionary loads
-    // (~500ms), returns empty suggestions gracefully.
-    private val suggestionEngine: SuggestionEngine by lazy {
-        DictionaryEngine(
-            context = applicationContext,
+    // Production suggestion engine: opens the binary trie off-thread and atomically
+    // publishes the resolved language/layout only after a complete native load.
+    private val dictionaryEngine: NativeTrieSuggestionEngine by lazy {
+        NativeTrieSuggestionEngine(
             dataStore = entryPoint.dataStore(),
             coroutineScope = bindingScope,
+            opener = AndroidNativeTrieOpener(applicationContext),
         )
     }
+    private data class ActiveKeyboardState(
+        val language: SupportedLanguage,
+        val layout: KeyboardLayout,
+    )
+    private val _activeKeyboardState = MutableStateFlow(
+        ActiveKeyboardState(SupportedLanguage.FRENCH, KeyboardLayout.AZERTY),
+    )
     private val _currentWord = MutableStateFlow("")
     private val _suggestions = MutableStateFlow<List<String>>(emptyList())
+    private val _suggestionMode = MutableStateFlow(SuggestionPresentationMode.COMPLETION)
+    private var latestSuggestionRequestId: Long? = null
+    private var correctionSessionId = 0L
+    // Rolling autocorrect tally. Autocorrect is silent by design, so a report of "it never
+    // corrects" used to leave nothing behind; one line per Space would drown the 1 MB buffer in
+    // a few minutes of typing. Counting and reporting periodically keeps both properties.
+    private val autocorrectTally = linkedMapOf<AutocorrectSpaceDiagnosis, Int>()
+    private var spacesSinceAutocorrectReport = 0
+
+    // Null until the policy is first resolved, so the opening state is logged as well as every
+    // later change. Comparing against _autocorrectEnabled alone stays silent when the resolved
+    // value happens to equal the default, which is the common case and the one worth stating.
+    private var loggedAutocorrectEnabled: Boolean? = null
+
+    private val _predictionToken = MutableStateFlow<NextWordPredictionToken?>(null)
+    private val predictionCoordinator = NextWordPredictionCoordinator()
+    private val autocorrectCoordinator: AutocorrectInputCoordinator by lazy {
+        AutocorrectInputCoordinator { word ->
+            runPersonalizedLearning(PersonalizedLearningEntryPoint.AUTOCORRECT_UNDO) {
+                dictionaryEngine.personalDictionary.learnWord(word)
+            }
+        }
+    }
 
     // Waveform animation driver: smooths raw microphone energy for organic bar movement.
     // smoothingFactor=0.3 (fast rise) and decayFactor=0.85 (slow fall) match iOS BrandWaveformDriver.
@@ -114,12 +206,18 @@ class DictusImeService : LifecycleInputMethodService() {
                 if (service is DictationController) {
                     dictationController = service
                     isBound = true
+                    service.prewarmEngine()
                     Timber.d("Bound to DictationService")
 
                     // Observe service state and mirror to local flow
                     stateCollectionJob = bindingScope.launch {
                         service.state.collect { state ->
                             _serviceState.value = state
+                        }
+                    }
+                    engineCollectionJob = bindingScope.launch {
+                        service.engineState.collect { state ->
+                            _engineState.value = state
                         }
                     }
                 } else {
@@ -135,7 +233,10 @@ class DictusImeService : LifecycleInputMethodService() {
             isBound = false
             stateCollectionJob?.cancel()
             stateCollectionJob = null
+            engineCollectionJob?.cancel()
+            engineCollectionJob = null
             _serviceState.value = DictationState.Idle
+            _engineState.value = SttEngineState.Cold
             Timber.d("Unbound from DictationService")
         }
     }
@@ -145,20 +246,114 @@ class DictusImeService : LifecycleInputMethodService() {
         Timber.d("DictusImeService created")
         bindDictationService()
 
-        // Observe suggestions toggle from DataStore (defaults to true)
+        // Suggestion display and automatic replacement are separate live preferences.
         bindingScope.launch {
             entryPoint.dataStore().data
                 .map { it[PreferenceKeys.SUGGESTIONS_ENABLED] ?: true }
-                .collect { enabled -> _suggestionsEnabled.value = enabled }
+                .collect { enabled ->
+                    _suggestionsEnabled.value = enabled
+                    configurePredictionCoordinator()
+                    if (shouldRequestSuggestions() && _currentWord.value.isNotEmpty()) {
+                        requestSuggestionsForCurrentWord()
+                    } else {
+                        clearSuggestionState()
+                    }
+                }
+        }
+        bindingScope.launch {
+            entryPoint.dataStore().data
+                .map { it[PreferenceKeys.AUTOCORRECT_ENABLED] }
+                .collect { preference ->
+                    autocorrectPreference = preference
+                    updateAutocorrectPolicy()
+                    if (shouldRequestSuggestions() && _currentWord.value.isNotEmpty()) {
+                        requestSuggestionsForCurrentWord()
+                    }
+                }
+        }
+        bindingScope.launch {
+            dictionaryEngine.suggestionResults.collect { result ->
+                val correctionContextCurrent = result.contextIdentity?.let { identity ->
+                    shouldRequestSuggestions() && CorrectionContextExtractor.isCurrent(
+                        identity = identity,
+                        sessionId = correctionSessionId,
+                        language = currentCorrectionLanguage(),
+                        snapshot = ImeServicePrivacyPolicy.readEditorContextIfEligible(
+                            isCurrentEditorSuggestionEligible,
+                            null,
+                        ) {
+                            currentInputConnection?.let(::InputConnectionAutocorrectEditor)?.snapshot()
+                        },
+                    )
+                } ?: true
+                val predictionPublication = if (
+                    result.mode == NativeTrieSuggestionEngine.SuggestionMode.PREDICTION
+                ) {
+                    currentInputConnection?.let {
+                        predictionCoordinator.publish(
+                            InputConnectionAutocorrectEditor(it),
+                            result.requestId,
+                            result.input,
+                            result.suggestions,
+                        )
+                    }
+                } else {
+                    null
+                }
+                if (
+                    result.requestId == latestSuggestionRequestId &&
+                    correctionContextCurrent &&
+                    (
+                        result.mode == NativeTrieSuggestionEngine.SuggestionMode.COMPLETION &&
+                            result.input == _currentWord.value ||
+                            result.mode == NativeTrieSuggestionEngine.SuggestionMode.PREDICTION &&
+                            predictionPublication != null
+                    )
+                ) {
+                    if (result.mode == NativeTrieSuggestionEngine.SuggestionMode.COMPLETION) {
+                        autocorrectCoordinator.suggestionPublished(
+                            AutocorrectSuggestionSnapshot(
+                                requestId = result.requestId,
+                                input = result.input,
+                                isKnownWord = result.isKnownWord,
+                                knownInputDominance = result.knownInputDominance,
+                                primaryCorrection = result.primaryCorrection,
+                                isLearnedWord = dictionaryEngine.personalDictionary.isLearned(result.input),
+                            ),
+                        )
+                    }
+                    _suggestions.value = if (_suggestionsEnabled.value) {
+                        predictionPublication?.suggestions ?: result.suggestions
+                    } else {
+                        emptyList()
+                    }
+                }
+            }
+        }
+        bindingScope.launch {
+            dictionaryEngine.activation.filterNotNull().collect { activation ->
+                autocorrectCoordinator.onOtherInput()
+                clearSuggestionState()
+                val activeState = ActiveKeyboardState(activation.language, activation.layout)
+                _activeKeyboardState.value = activeState
+                configurePredictionCoordinator()
+                updateAutocorrectPolicy()
+                refreshFrenchAdaptiveKeyState()
+                if (shouldRequestSuggestions() && _currentWord.value.isNotEmpty()) {
+                    requestSuggestionsForCurrentWord()
+                }
+            }
         }
     }
 
     override fun onDestroy() {
         stateCollectionJob?.cancel()
+        engineCollectionJob?.cancel()
         if (isBound) {
             unbindService(serviceConnection)
             isBound = false
         }
+        dictionaryEngine.close()
         bindingScope.cancel()
         super.onDestroy()
     }
@@ -172,6 +367,7 @@ class DictusImeService : LifecycleInputMethodService() {
      * Overriding onKeyDown is the correct approach for IME services.
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        autocorrectCoordinator.onOtherInput()
         if (keyCode == KeyEvent.KEYCODE_BACK && _isEmojiPickerOpen.value) {
             _isEmojiPickerOpen.value = false
             return true // Consume the back key
@@ -196,16 +392,245 @@ class DictusImeService : LifecycleInputMethodService() {
             newSelStart, newSelEnd,
             candidatesStart, candidatesEnd,
         )
+        autocorrectCoordinator.onEditorSelectionChanged(newSelStart, newSelEnd)
+        isEditorSelectionCollapsed = newSelStart >= 0 && newSelStart == newSelEnd
+        refreshFrenchAdaptiveKeyState()
+        if (!isCurrentEditorSuggestionEligible) {
+            _currentWord.value = ""
+            clearSuggestionState()
+            return
+        }
         val ic = currentInputConnection ?: return
+        if (_suggestionMode.value == SuggestionPresentationMode.PREDICTION) {
+            predictionCoordinator.editorChanged(InputConnectionAutocorrectEditor(ic))
+            if (predictionCoordinator.currentPublication != null || predictionCoordinator.latestToken != null) {
+                return
+            }
+        }
         val beforeCursor = ic.getTextBeforeCursor(50, 0)?.toString() ?: ""
         val currentWord = beforeCursor.split(" ", "\n").lastOrNull() ?: ""
 
         _currentWord.value = currentWord
-        _suggestions.value = if (_suggestionsEnabled.value) {
-            suggestionEngine.getSuggestions(currentWord)
+        if (shouldRequestSuggestions() && currentWord.isNotEmpty()) {
+            requestSuggestionsForCurrentWord()
         } else {
-            emptyList()
+            clearSuggestionState()
         }
+    }
+
+    /** Starts a request-identified lookup and immediately invalidates the previous snapshot. */
+    private fun requestSuggestionsForCurrentWord() {
+        _suggestions.value = emptyList()
+        _suggestionMode.value = SuggestionPresentationMode.COMPLETION
+        val activation = dictionaryEngine.activation.value
+        val context = activation?.takeIf { it.hasNgram && _suggestionsEnabled.value }?.let {
+            ImeServicePrivacyPolicy.readEditorContextIfEligible(
+                isCurrentEditorSuggestionEligible,
+                null,
+            ) {
+                val snapshot = currentInputConnection
+                    ?.let(::InputConnectionAutocorrectEditor)
+                    ?.snapshot()
+                CorrectionContextExtractor.extract(
+                    snapshot = snapshot,
+                    currentWord = _currentWord.value,
+                    sessionId = correctionSessionId,
+                    language = CorrectionLanguageIdentity(it.language, it.layout),
+                )
+            }
+        }
+        latestSuggestionRequestId = dictionaryEngine.requestSuggestions(
+            _currentWord.value,
+            context = context,
+        )
+        autocorrectCoordinator.suggestionRequested(latestSuggestionRequestId, _currentWord.value)
+    }
+
+    private fun currentCorrectionLanguage(): CorrectionLanguageIdentity {
+        val active = _activeKeyboardState.value
+        return CorrectionLanguageIdentity(active.language, active.layout)
+    }
+
+    private fun requestNextWordPredictions(spaceResult: AutocorrectSpaceResult? = null) {
+        configurePredictionCoordinator()
+        val editor = currentInputConnection?.let(::InputConnectionAutocorrectEditor)
+        val token = editor?.let {
+            if (spaceResult == null) {
+                predictionCoordinator.request(it, dictionaryEngine::requestPredictions)
+            } else {
+                predictionCoordinator.afterSpace(
+                    spaceResult,
+                    it,
+                    dictionaryEngine::requestPredictions,
+                )
+            }
+        }
+        if (token == null) {
+            clearSuggestionState()
+            return
+        }
+        _currentWord.value = ""
+        _suggestions.value = emptyList()
+        _suggestionMode.value = SuggestionPresentationMode.PREDICTION
+        latestSuggestionRequestId = token.requestId
+        _predictionToken.value = token
+        autocorrectCoordinator.suggestionRequested(null, "")
+    }
+
+    private fun clearSuggestionState() {
+        dictionaryEngine.invalidateSuggestions()
+        predictionCoordinator.invalidate()
+        latestSuggestionRequestId = null
+        _predictionToken.value = null
+        _suggestions.value = emptyList()
+        _suggestionMode.value = SuggestionPresentationMode.COMPLETION
+    }
+
+    private fun shouldRequestSuggestions(): Boolean =
+        AutocorrectRuntimePolicy.shouldRequestSuggestions(
+            editorEligible = isCurrentEditorSuggestionEligible,
+            suggestionDisplayEnabled = _suggestionsEnabled.value,
+            autocorrectEnabled = _autocorrectEnabled.value,
+        )
+
+    private fun configurePredictionCoordinator() {
+        val activation = dictionaryEngine.activation.value
+        predictionCoordinator.configure(
+            suggestionsEnabled = _suggestionsEnabled.value,
+            languageIdentity = activation?.let {
+                "${it.language.code}:${it.layout.persistedValue}"
+            },
+            hasNgram = activation?.hasNgram == true,
+        )
+    }
+
+    /**
+     * Accumulates why each Space did or did not correct, and reports periodically.
+     *
+     * The two editor outcomes are reported immediately instead: they mean a candidate existed and
+     * the editor would not take it, which is rare enough to never flood and specific enough that
+     * waiting for the next summary would lose which keystroke produced it.
+     */
+    private fun recordAutocorrectOutcome(diagnosis: AutocorrectSpaceDiagnosis?, detail: String?) {
+        diagnosis ?: return
+        autocorrectTally[diagnosis] = (autocorrectTally[diagnosis] ?: 0) + 1
+        if (
+            diagnosis == AutocorrectSpaceDiagnosis.EDITOR_REFUSED ||
+            diagnosis == AutocorrectSpaceDiagnosis.EDITOR_INDETERMINATE
+        ) {
+            Timber.w(
+                "Autocorrect had a candidate the editor would not apply: %s (%s)",
+                diagnosis,
+                detail ?: "no detail",
+            )
+        }
+        spacesSinceAutocorrectReport++
+        if (spacesSinceAutocorrectReport < AUTOCORRECT_REPORT_INTERVAL) return
+        spacesSinceAutocorrectReport = 0
+        Timber.d(
+            "Autocorrect outcomes (%s): %s",
+            _activeKeyboardState.value.language.code,
+            autocorrectTally.entries.joinToString(" ") { "${it.key}=${it.value}" },
+        )
+        autocorrectTally.clear()
+    }
+
+    private fun updateAutocorrectPolicy() {
+        val enabled = AutocorrectRuntimePolicy.isEnabled(
+            autocorrectPreference,
+            _activeKeyboardState.value.language.profile,
+        )
+        if (enabled != loggedAutocorrectEnabled) {
+            loggedAutocorrectEnabled = enabled
+            Timber.i(
+                "Autocorrect %s (preference=%s, language=%s, supported=%b)",
+                if (enabled) "enabled" else "disabled",
+                autocorrectPreference?.toString() ?: "default",
+                _activeKeyboardState.value.language.code,
+                _activeKeyboardState.value.language.profile.supportsAutocorrect,
+            )
+        }
+        _autocorrectEnabled.value = enabled
+        // A false transition synchronously drops pending correction evidence and undo state.
+        autocorrectCoordinator.setRuntimeEnabled(enabled)
+    }
+
+    override fun onStartInput(
+        attribute: EditorInfo?,
+        restarting: Boolean,
+    ) {
+        super.onStartInput(attribute, restarting)
+        correctionSessionId++
+        val editorPolicy = attribute?.let {
+            EditorEligibilityPolicy.resolve(it.inputType, it.imeOptions)
+        }
+        isCurrentEditorSuggestionEligible = editorPolicy?.suggestionEligible == true
+        isPersonalizedLearningAllowed = editorPolicy?.personalizedLearningAllowed == true
+        transcriptionRetentionSession.restrict(
+            isCurrentEditorSuggestionEligible,
+            isPersonalizedLearningAllowed,
+        )
+        autocorrectCoordinator.startSession(
+            autocorrectEligible = isCurrentEditorSuggestionEligible,
+            personalizedLearningAllowed = isPersonalizedLearningAllowed,
+        )
+        predictionCoordinator.startSession(isCurrentEditorSuggestionEligible)
+        configurePredictionCoordinator()
+        autocorrectCoordinator.setRuntimeEnabled(_autocorrectEnabled.value)
+        _currentWord.value = ""
+        clearSuggestionState()
+        // EditorInfo supplies the initial selection before onUpdateSelection starts flowing.
+        isEditorSelectionCollapsed = attribute != null &&
+            attribute.initialSelStart >= 0 &&
+            attribute.initialSelStart == attribute.initialSelEnd
+        _frenchAdaptiveKeyState.value = FrenchAdaptiveKey.DEFAULT
+        refreshFrenchAdaptiveKeyState()
+        logEditorSession(attribute, restarting)
+    }
+
+    /**
+     * Records which editor the keyboard was handed, once per field focus.
+     *
+     * A report that autocorrect never fires is unactionable without this. The whole verified
+     * replacement path rests on getExtractedText, which is the host app's to implement, and a
+     * WebView, a Compose field and a plain EditText do not answer alike. The package name and
+     * input type say which one was in front of the user; neither is user content.
+     */
+    private fun logEditorSession(attribute: EditorInfo?, restarting: Boolean) {
+        if (restarting) return
+        Timber.d(
+            "Editor session: package=%s inputType=0x%08x imeOptions=0x%08x eligible=%b learning=%b",
+            attribute?.packageName ?: "unknown",
+            attribute?.inputType ?: 0,
+            attribute?.imeOptions ?: 0,
+            isCurrentEditorSuggestionEligible,
+            isPersonalizedLearningAllowed,
+        )
+    }
+
+    override fun onStartInputView(
+        info: android.view.inputmethod.EditorInfo?,
+        restarting: Boolean,
+    ) {
+        super.onStartInputView(info, restarting)
+        refreshFrenchAdaptiveKeyState()
+    }
+
+    override fun onFinishInput() {
+        correctionSessionId++
+        autocorrectCoordinator.finishSession()
+        predictionCoordinator.finishSession()
+        isCurrentEditorSuggestionEligible = false
+        isPersonalizedLearningAllowed = false
+        transcriptionRetentionSession.restrict(
+            editorEligible = false,
+            personalizedLearningAllowed = false,
+        )
+        _currentWord.value = ""
+        clearSuggestionState()
+        isEditorSelectionCollapsed = false
+        _frenchAdaptiveKeyState.value = FrenchAdaptiveKey.DEFAULT
+        super.onFinishInput()
     }
 
     /**
@@ -262,9 +687,65 @@ class DictusImeService : LifecycleInputMethodService() {
     @Composable
     override fun KeyboardContent() {
         val dictationState by _serviceState.collectAsState()
+        val engineState by _engineState.collectAsState()
+        val micGate = remember { PendingMicGate() }
+        var showFailureOverlay by remember { mutableStateOf(true) }
+        // Only a real mic tap may surface the "no model" panel. A background prewarm must
+        // never blanket the keyboard, which is what covered onboarding before the download step.
+        var showModelMissingOverlay by remember { mutableStateOf(false) }
         val isEmojiPickerOpen by _isEmojiPickerOpen.collectAsState()
         val currentWord by _currentWord.collectAsState()
         val suggestions by _suggestions.collectAsState()
+        val suggestionMode by _suggestionMode.collectAsState()
+        val predictionToken by _predictionToken.collectAsState()
+        val frenchAdaptiveKeyState by _frenchAdaptiveKeyState.collectAsState()
+        val activeKeyboardState by _activeKeyboardState.collectAsState()
+        val activeLanguage = activeKeyboardState.language
+        val activeLayout = activeKeyboardState.layout
+        val usesFrenchAdaptiveKey = KeyboardPreferenceResolver.usesFrenchAdaptiveKey(
+            activeLanguage,
+            activeLayout,
+        )
+
+        fun runGateCommand(command: MicGateCommand) {
+            when (command) {
+                MicGateCommand.PREWARM -> dictationController?.prewarmEngine()
+                MicGateCommand.START_RECORDING -> dictationController?.startRecording()
+                MicGateCommand.NONE -> Unit
+            }
+        }
+        LaunchedEffect(engineState) {
+            if (engineState !is SttEngineState.Failed) showFailureOverlay = true
+            if (engineState is SttEngineState.ModelMissing) {
+                // A tap made while the engine was still Cold or Loading deserves the answer it
+                // was waiting for, so read the pending flag before engineChanged clears it.
+                if (micGate.isPending) showModelMissingOverlay = true
+            } else {
+                showModelMissingOverlay = false
+            }
+            runGateCommand(micGate.engineChanged(engineState))
+        }
+
+        val gatedMicTap = {
+            autocorrectCoordinator.onOtherInput()
+            if (dictationState is DictationState.Idle) {
+                if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    transcriptionRetentionSession.begin(
+                        isCurrentEditorSuggestionEligible,
+                        isPersonalizedLearningAllowed,
+                    )
+                    if (engineState is SttEngineState.Failed) showFailureOverlay = true
+                    if (engineState is SttEngineState.ModelMissing) showModelMissingOverlay = true
+                    runGateCommand(micGate.request(engineState))
+                } else {
+                    Timber.w("RECORD_AUDIO permission not granted")
+                }
+            } else {
+                handleMicTap()
+            }
+        }
 
         // Read theme preference from DataStore and map to ThemeMode.
         // The entryPoint provides DataStore access via Hilt SingletonComponent.
@@ -289,65 +770,182 @@ class DictusImeService : LifecycleInputMethodService() {
             .map { it[PreferenceKeys.HAPTICS_ENABLED] ?: true }
             .collectAsState(initial = true)
 
-        // Read keyboard layout preference (AZERTY vs QWERTY).
-        // WHY collectAsState: This is a Compose composable, so we use the DataStore Flow
-        // + collectAsState() pattern (not coroutine-scope collect). When the user toggles
-        // the layout in Settings, DataStore emits a new value, Compose recomposes, and
-        // KeyboardScreen receives the updated layout immediately.
-        val keyboardLayout by entryPoint.dataStore().data
-            .map { it[PreferenceKeys.KEYBOARD_LAYOUT] ?: "azerty" }
-            .collectAsState(initial = "azerty")
+        // Distinct from the configurable recording start/stop/cancel sounds.
+        val keySoundsFlow = remember {
+            entryPoint.dataStore().data.map { it[PreferenceKeys.KEY_SOUNDS_ENABLED] ?: true }
+        }
+        val keySoundsEnabled by keySoundsFlow.collectAsState(initial = true)
+
 
         val switchKeyboard = {
+            autocorrectCoordinator.onOtherInput()
             val imm = getSystemService(INPUT_METHOD_SERVICE)
                 as android.view.inputmethod.InputMethodManager
             imm.showInputMethodPicker()
         }
+        val cycleKeyboardLanguage = {
+            autocorrectCoordinator.onOtherInput()
+            clearSuggestionState()
+            dictionaryEngine.invalidateSuggestions()
+            bindingScope.launch {
+                cycleKeyboardLanguage(entryPoint.dataStore())
+            }
+            Unit
+        }
+        val openDictusSettings = {
+            autocorrectCoordinator.onOtherInput()
+            clearSuggestionState()
+            val authorization = SettingsLaunchAuthorization.issue()
+            val intent = Intent(AppLaunchContract.ACTION_OPEN_SETTINGS).apply {
+                component = ComponentName(packageName, AppLaunchContract.MAIN_ACTIVITY_CLASS)
+                putExtra(AppLaunchContract.EXTRA_AUTHORIZATION, authorization)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            try {
+                startActivity(intent)
+            } catch (error: RuntimeException) {
+                SettingsLaunchAuthorization.revoke(authorization)
+                Timber.e(error, "Unable to open Dictus Settings from IME")
+            }
+        }
 
-        when (dictationState) {
+        val isEngineOverlayVisible = engineState is SttEngineState.Loading ||
+            (engineState is SttEngineState.Failed && showFailureOverlay) ||
+            (engineState is SttEngineState.ModelMissing && showModelMissingOverlay)
+
+        ImeOverlayHost(
+            content = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (isEngineOverlayVisible) Modifier.clearAndSetSemantics { } else Modifier,
+                        ),
+                ) {
+                    when (dictationState) {
             is DictationState.Idle -> {
                 KeyboardScreen(
                     onCommitText = { text -> commitText(text) },
                     onDeleteBackward = { deleteBackward() },
+                    onDeleteWordBackward = { deleteWordBackward() },
                     onSendReturn = { sendReturnKey() },
-                    onSwitchKeyboard = switchKeyboard,
-                    onMicTap = { handleMicTap() },
+                    languageProfile = activeLanguage.profile,
+                    onCycleLanguage = cycleKeyboardLanguage,
+                    onOpenSettings = openDictusSettings,
+                    onMicTap = gatedMicTap,
+                    isMicEnabled = engineState !is SttEngineState.Loading,
                     isEmojiPickerOpen = isEmojiPickerOpen,
-                    onEmojiToggle = { _isEmojiPickerOpen.value = !_isEmojiPickerOpen.value },
+                    onEmojiToggle = {
+                        autocorrectCoordinator.onOtherInput()
+                        _isEmojiPickerOpen.value = !_isEmojiPickerOpen.value
+                    },
                     onEmojiSelected = { emoji -> commitText(emoji) },
                     currentWord = currentWord,
                     suggestions = suggestions,
-                    onSuggestionSelected = { suggestion ->
-                        // Replace the current word fragment with the selected suggestion + space
+                    suggestionMode = suggestionMode,
+                    predictionToken = predictionToken,
+                    onSuggestionSelected = { suggestion, renderedPredictionToken ->
+                        autocorrectCoordinator.onOtherInput()
                         val ic = currentInputConnection ?: return@KeyboardScreen
+                        // A callback carrying a prediction token must always take the guarded
+                        // prediction path. Never reinterpret a delayed prediction tap as a
+                        // completion after newer state has changed the visible mode.
+                        if (
+                            renderedPredictionToken != null ||
+                            _suggestionMode.value == SuggestionPresentationMode.PREDICTION
+                        ) {
+                            // Model words bypass correction and personalized learning.
+                            // Read the engine's current activation synchronously so a newly
+                            // accepted language cannot race its asynchronous UI collector.
+                            configurePredictionCoordinator()
+                            val token = renderedPredictionToken
+                            val result = if (token == null) {
+                                NextWordPredictionInsertResult.REJECTED_UNCHANGED
+                            } else {
+                                predictionCoordinator.selectAndChain(
+                                    InputConnectionAutocorrectEditor(ic),
+                                    token,
+                                    suggestion,
+                                    dictionaryEngine::requestPredictions,
+                                )
+                            }
+                            if (result == NextWordPredictionInsertResult.APPLIED) {
+                                refreshFrenchAdaptiveKeyState()
+                                val next = predictionCoordinator.latestToken
+                                if (next != null) {
+                                    _currentWord.value = ""
+                                    _suggestions.value = emptyList()
+                                    _suggestionMode.value = SuggestionPresentationMode.PREDICTION
+                                    latestSuggestionRequestId = next.requestId
+                                    _predictionToken.value = next
+                                } else {
+                                    clearSuggestionState()
+                                }
+                            } else {
+                                clearSuggestionState()
+                            }
+                            return@KeyboardScreen
+                        }
+                        // Replace the current word fragment with the selected completion + space.
                         val word = _currentWord.value
                         if (word.isNotEmpty()) {
                             ic.deleteSurroundingText(word.length, 0)
                         }
                         ic.commitText("$suggestion ", 1)
+                        refreshFrenchAdaptiveKeyState()
                         // Count suggestion selection toward personal dictionary learning (2 taps = learned).
-                        // Safe cast: at runtime suggestionEngine is always DictionaryEngine, but the safe
-                        // cast avoids a hard coupling on the declared SuggestionEngine interface type.
-                        (suggestionEngine as? DictionaryEngine)?.personalDictionary?.recordWordTyped(suggestion)
+                        runPersonalizedLearning(PersonalizedLearningEntryPoint.MANUAL_SUGGESTION) {
+                            dictionaryEngine.personalDictionary.recordWordTyped(suggestion)
+                        }
                         _suggestions.value = emptyList()
                         _currentWord.value = ""
+                        requestNextWordPredictions()
                     },
                     onCurrentWordSelected = {
+                        autocorrectCoordinator.onOtherInput()
                         // Commit the raw input as-is + space (user accepts what they typed)
                         val ic = currentInputConnection ?: return@KeyboardScreen
                         val word = _currentWord.value
                         if (word.isNotEmpty()) {
                             // Count the committed raw word toward personal dictionary learning.
-                            (suggestionEngine as? DictionaryEngine)?.personalDictionary?.recordWordTyped(word)
+                            runPersonalizedLearning(PersonalizedLearningEntryPoint.RAW_ACCEPTED_WORD) {
+                                dictionaryEngine.personalDictionary.recordWordTyped(word)
+                            }
                             ic.commitText(" ", 1)
+                            refreshFrenchAdaptiveKeyState()
                             _suggestions.value = emptyList()
                             _currentWord.value = ""
+                            requestNextWordPredictions()
                         }
                     },
                     themeMode = themeMode,
                     initialLayer = initialLayer,
                     hapticsEnabled = hapticsEnabled,
-                    keyboardLayout = keyboardLayout,
+                    onKeySound = { keyType ->
+                        keyboardSoundPlayer.play(keyType, keySoundsEnabled)
+                    },
+                    onMoveCursor = { delta ->
+                        autocorrectCoordinator.onOtherInput()
+                        clearSuggestionState()
+                        currentInputConnection?.let { moveCursorBy(it, delta) }
+                        refreshFrenchAdaptiveKeyState()
+                    },
+                    keyboardLayout = activeLayout.persistedValue,
+                    frenchAdaptiveKeyState = if (usesFrenchAdaptiveKey) {
+                        frenchAdaptiveKeyState
+                    } else {
+                        FrenchAdaptiveKey.DEFAULT
+                    },
+                    onFrenchAdaptiveKey = {
+                        if (usesFrenchAdaptiveKey) {
+                            handleFrenchAdaptiveKey()
+                        } else {
+                            commitText("'")
+                        }
+                    },
+                    onFrenchAdaptiveVariant = { variant ->
+                        if (usesFrenchAdaptiveKey) handleFrenchAdaptiveVariant(variant)
+                    },
                 )
             }
             is DictationState.Recording -> {
@@ -375,16 +973,18 @@ class DictusImeService : LifecycleInputMethodService() {
                         energy = smoothedEnergy,
                         onCancel = {
                             dictationController?.cancelRecording()
+                            transcriptionRetentionSession.reset()
                             Timber.d("Recording cancelled")
                         },
                         onConfirm = {
                             val controller = dictationController
                             if (controller != null) {
+                                val retention = transcriptionRetentionSession.consume()
                                 bindingScope.launch {
-                                    val text = controller.confirmAndTranscribe()
+                                    val text = controller.confirmAndTranscribe(retention)
                                     if (text != null) {
                                         commitText(text)
-                                        Timber.d("Transcribed text inserted: '%s'", text)
+                                        Timber.d(PrivacySafeLog.transcriptionInserted(text))
                                         // Clear suggestions after voice transcription so the bar
                                         // does not show stale suggestions from the last typed word.
                                         // Suggestions resume when user types on keyboard.
@@ -397,7 +997,7 @@ class DictusImeService : LifecycleInputMethodService() {
                             }
                         },
                         onSwitchKeyboard = switchKeyboard,
-                        onMicTap = { handleMicTap() },
+                        onMicTap = gatedMicTap,
                     )
                 }
             }
@@ -408,32 +1008,158 @@ class DictusImeService : LifecycleInputMethodService() {
                     TranscribingScreen()
                 }
             }
-        }
+                    }
+                }
+            },
+            overlay = {
+                ModelLoadingOverlay(
+                    engineState = when {
+                        engineState is SttEngineState.Failed && !showFailureOverlay ->
+                            SttEngineState.Cold
+                        engineState is SttEngineState.ModelMissing && !showModelMissingOverlay ->
+                            SttEngineState.Cold
+                        else -> engineState
+                    },
+                    onRetry = { runGateCommand(micGate.retry()) },
+                    onCancel = {
+                        micGate.cancel()
+                        // Keep the service state authoritative while hiding these local surfaces.
+                        showFailureOverlay = false
+                        showModelMissingOverlay = false
+                    },
+                )
+            },
+        )
     }
 
     /**
      * Commits text to the currently focused editor field.
      */
     fun commitText(text: String) {
-        currentInputConnection?.commitText(text, 1)
+        val inputConnection = currentInputConnection ?: return
+        if (text == " ") {
+            val result = autocorrectCoordinator.onSpace(InputConnectionAutocorrectEditor(inputConnection)) {
+                inputConnection.commitText(" ", 1)
+            }
+            recordAutocorrectOutcome(
+                autocorrectCoordinator.lastSpaceDiagnosis,
+                autocorrectCoordinator.lastSpaceDetail,
+            )
+            if (result != AutocorrectSpaceResult.INDETERMINATE) {
+                requestNextWordPredictions(result)
+            } else {
+                clearSuggestionState()
+            }
+        } else {
+            autocorrectCoordinator.onOtherInput()
+            clearSuggestionState()
+            inputConnection.commitText(text, 1)
+        }
+        refreshFrenchAdaptiveKeyState()
     }
 
     /**
      * Deletes one character before the cursor.
      */
     fun deleteBackward() {
-        currentInputConnection?.deleteSurroundingText(1, 0)
+        val inputConnection = currentInputConnection ?: return
+        clearSuggestionState()
+        autocorrectCoordinator.onBackspace(InputConnectionAutocorrectEditor(inputConnection)) {
+            deletePrecedingCodePoint(inputConnection)
+        }
+        refreshFrenchAdaptiveKeyState()
+    }
+
+    /** Deletes the preceding token during accelerated backspace repetition. */
+    fun deleteWordBackward() {
+        val inputConnection = currentInputConnection ?: return
+        autocorrectCoordinator.onOtherInput()
+        clearSuggestionState()
+        deletePrecedingWord(inputConnection)
+        refreshFrenchAdaptiveKeyState()
     }
 
     /**
      * Sends an Enter/Return key event to the editor.
      */
     fun sendReturnKey() {
+        autocorrectCoordinator.onOtherInput()
+        clearSuggestionState()
         currentInputConnection?.sendKeyEvent(
             android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER),
         )
         currentInputConnection?.sendKeyEvent(
             android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_ENTER),
         )
+        refreshFrenchAdaptiveKeyState()
     }
+
+    private fun refreshFrenchAdaptiveKeyState() {
+        // Editor eligibility is established from metadata before any InputConnection context read.
+        if (!isCurrentEditorSuggestionEligible) {
+            _frenchAdaptiveKeyState.value = FrenchAdaptiveKey.DEFAULT
+            return
+        }
+        val activeState = _activeKeyboardState.value
+        if (!KeyboardPreferenceResolver.usesFrenchAdaptiveKey(
+                activeState.language,
+                activeState.layout,
+            )
+        ) {
+            _frenchAdaptiveKeyState.value = FrenchAdaptiveKey.DEFAULT
+            return
+        }
+        _frenchAdaptiveKeyState.value = readFrenchAdaptiveContext()
+    }
+
+    private fun handleFrenchAdaptiveKey() {
+        val inputConnection = currentInputConnection ?: return
+        autocorrectCoordinator.onOtherInput()
+        if (!isCurrentEditorSuggestionEligible) {
+            inputConnection.commitText(FrenchAdaptiveKey.DEFAULT.label, 1)
+            return
+        }
+        val state = readFrenchAdaptiveContext()
+        _frenchAdaptiveKeyState.value = state
+        applyFrenchAdaptiveKey(inputConnection, state, isEditorSelectionCollapsed)
+        refreshFrenchAdaptiveKeyState()
+    }
+
+    private fun handleFrenchAdaptiveVariant(variant: String) {
+        val inputConnection = currentInputConnection ?: return
+        autocorrectCoordinator.onOtherInput()
+        if (!isCurrentEditorSuggestionEligible) return
+        // Context may change while the popup is open; never replace from stale display state.
+        val currentState = readFrenchAdaptiveContext()
+        applyFrenchAdaptiveVariant(
+            inputConnection,
+            currentState,
+            variant,
+            isEditorSelectionCollapsed,
+        )
+        refreshFrenchAdaptiveKeyState()
+    }
+
+    private fun readFrenchAdaptiveContext(): FrenchAdaptiveKey.State =
+        ImeServicePrivacyPolicy.readEditorContextIfEligible(
+            editorEligible = isCurrentEditorSuggestionEligible,
+            fallback = FrenchAdaptiveKey.DEFAULT,
+        ) {
+            readFrenchAdaptiveKeyState(
+                currentInputConnection,
+                selectionCollapsed = isEditorSelectionCollapsed,
+            )
+        }
+
+    private fun runPersonalizedLearning(
+        entryPoint: PersonalizedLearningEntryPoint,
+        mutation: () -> Unit,
+    ) {
+        ImeServicePrivacyPolicy.runPersonalizedLearningIfAllowed(
+            personalizedLearningAllowed = isPersonalizedLearningAllowed,
+            entryPoint = entryPoint,
+            mutation = mutation,
+        )
+    }
+
 }

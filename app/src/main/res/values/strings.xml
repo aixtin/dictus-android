@@ -16,6 +16,7 @@
     <string name="onboarding_keyboard_setup_title">Add the keyboard</string>
     <string name="onboarding_keyboard_setup_body">Enable the Dictus keyboard in your device settings.</string>
     <string name="onboarding_keyboard_setup_cta_open_settings">Open Settings</string>
+    <string name="onboarding_keyboard_setup_cta_select">Select Dictus</string>
     <string name="onboarding_keyboard_setup_cta_continue">Continue</string>
 
     <!-- Onboarding: Mode selection screen (Step 4) -->
@@ -61,9 +62,12 @@
     <!-- Settings: Row labels -->
     <string name="settings_language">Language</string>
     <string name="settings_keyboard_layout">Keyboard layout</string>
+    <string name="settings_keyboard_language">Keyboard language</string>
     <string name="settings_default_mode">Default mode</string>
     <string name="settings_haptic_feedback">Haptic feedback</string>
+    <string name="settings_keyboard_sounds">Keyboard sounds</string>
     <string name="settings_suggestions">Suggestions</string>
+    <string name="settings_autocorrect">Autocorrect</string>
     <string name="settings_sounds">Sounds</string>
     <string name="settings_theme">Theme</string>
     <string name="settings_version">Version</string>
@@ -93,6 +97,7 @@
     <!-- Settings: Picker bottom sheet titles -->
     <string name="picker_language_title">Choose language</string>
     <string name="picker_keyboard_layout_title">Keyboard layout</string>
+    <string name="picker_keyboard_language_title">Keyboard language</string>
     <string name="picker_default_mode_title">Default keyboard mode</string>
     <string name="picker_theme_title">App theme</string>
 
@@ -171,6 +176,30 @@
     <string name="home_last_transcription">Last transcription</string>
     <string name="home_copy_cd">Copy</string>
     <string name="home_new_dictation">New dictation</string>
+    <string name="home_history_hint">Swipe up for history</string>
+
+    <!-- HistoryScreen -->
+    <string name="history_title">History</string>
+    <string name="history_back_cd">Back</string>
+    <string name="history_empty">Your transcription history is empty.</string>
+    <string name="history_language_automatic">Automatic</string>
+    <string name="history_metadata">%1$s · %2$s · %3$s</string>
+    <plurals name="history_duration_seconds">
+        <item quantity="one">%d second</item>
+        <item quantity="other">%d seconds</item>
+    </plurals>
+    <string name="history_delete_cd">Delete transcription</string>
+    <string name="history_delete_title">Delete this transcription?</string>
+    <string name="history_delete_body">This action cannot be undone.</string>
+    <string name="history_delete_confirm">Delete</string>
+    <string name="history_delete_cancel">Cancel</string>
+    <string name="history_error">History is unavailable. Please try again.</string>
+    <string name="history_detail_title">Transcription</string>
+    <string name="history_copy_cd">Copy transcription</string>
+    <string name="history_share_cd">Share transcription</string>
+    <string name="history_copied">Transcription copied</string>
+    <string name="history_clip_label">Dictus transcription</string>
+    <string name="history_share_title">Share transcription</string>
 
     <!-- RecordingScreen -->
     <string name="recording_result_title">Result</string>

@@ -80,8 +80,11 @@ fun SettingsScreen(
     onNavigateToSoundSettings: () -> Unit = {},
 ) {
     val language by viewModel.language.collectAsState()
+    val keyboardLanguage by viewModel.keyboardLanguage.collectAsState()
     val suggestionsEnabled by viewModel.suggestionsEnabled.collectAsState()
+    val autocorrectEnabled by viewModel.autocorrectEnabled.collectAsState()
     val hapticsEnabled by viewModel.hapticsEnabled.collectAsState()
+    val keySoundsEnabled by viewModel.keySoundsEnabled.collectAsState()
     val keyboardLayout by viewModel.keyboardLayout.collectAsState()
     val keyboardMode by viewModel.keyboardMode.collectAsState()
     val theme by viewModel.theme.collectAsState()
@@ -92,6 +95,7 @@ fun SettingsScreen(
     // Bottom sheet visibility state
     var showLanguagePicker by remember { mutableStateOf(false) }
     var showKeyboardPicker by remember { mutableStateOf(false) }
+    var showKeyboardLanguagePicker by remember { mutableStateOf(false) }
     var showKeyboardModePicker by remember { mutableStateOf(false) }
     var showThemePicker by remember { mutableStateOf(false) }
     var showUiLanguagePicker by remember { mutableStateOf(false) }
@@ -120,6 +124,13 @@ fun SettingsScreen(
         SectionHeader(text = stringResource(R.string.settings_section_keyboard))
         SettingsCard {
             SettingPickerRow(
+                label = stringResource(R.string.settings_keyboard_language),
+                value = keyboardLanguageOptions()
+                    .first { it.first == keyboardLanguage }.second,
+                onClick = { showKeyboardLanguagePicker = true },
+            )
+            SettingDivider()
+            SettingPickerRow(
                 label = stringResource(R.string.settings_keyboard_layout),
                 value = keyboardLayout.uppercase(),
                 onClick = { showKeyboardPicker = true },
@@ -141,9 +152,21 @@ fun SettingsScreen(
             )
             SettingDivider()
             SettingToggleRow(
+                label = stringResource(R.string.settings_autocorrect),
+                checked = autocorrectEnabled,
+                onToggle = { viewModel.toggleAutocorrect() },
+            )
+            SettingDivider()
+            SettingToggleRow(
                 label = stringResource(R.string.settings_haptic_feedback),
                 checked = hapticsEnabled,
                 onToggle = { viewModel.toggleHaptics() },
+            )
+            SettingDivider()
+            SettingToggleRow(
+                label = stringResource(R.string.settings_keyboard_sounds),
+                checked = keySoundsEnabled,
+                onToggle = { viewModel.toggleKeySounds() },
             )
             SettingDivider()
             SettingNavRow(
@@ -182,7 +205,7 @@ fun SettingsScreen(
         SettingsCard {
             SettingInfoRow(
                 label = stringResource(R.string.settings_version),
-                value = "Dictus ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",
+                value = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
             )
             SettingDivider()
             SettingNavRow(
@@ -264,6 +287,16 @@ fun SettingsScreen(
             selected = language,
             onSelect = { viewModel.setLanguage(it) },
             onDismiss = { showLanguagePicker = false },
+        )
+    }
+
+    if (showKeyboardLanguagePicker) {
+        PickerBottomSheet(
+            title = stringResource(R.string.picker_keyboard_language_title),
+            options = keyboardLanguageOptions(),
+            selected = keyboardLanguage,
+            onSelect = { viewModel.setKeyboardLanguage(it) },
+            onDismiss = { showKeyboardLanguagePicker = false },
         )
     }
 

@@ -1,5 +1,6 @@
 package dev.pivisolutions.dictus.ime.ui
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
@@ -17,8 +18,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -26,6 +30,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
@@ -36,12 +43,25 @@ import androidx.compose.ui.window.PopupProperties
 import dev.pivisolutions.dictus.core.theme.DictusColors
 import dev.pivisolutions.dictus.core.theme.LocalDictusColors
 import dev.pivisolutions.dictus.ime.haptics.HapticHelper
+import dev.pivisolutions.dictus.ime.input.BackspaceDeletion
+import dev.pivisolutions.dictus.ime.input.BackspaceRepeatPolicy
+import dev.pivisolutions.dictus.ime.input.TrackpadMotionAccumulator
 import dev.pivisolutions.dictus.ime.model.KeyDefinition
 import dev.pivisolutions.dictus.ime.model.KeyType
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.abs
+
+internal val KeyPressedSemantics = SemanticsPropertyKey<Boolean>("KeyPressed")
+internal var SemanticsPropertyReceiver.keyPressed by KeyPressedSemantics
+
+internal fun pressedKeyBackground(
+    releasedColor: Color,
+    keyTextColor: Color,
+    isPressed: Boolean,
+): Color = if (isPressed) lerp(releasedColor, keyTextColor, 0.18f) else releasedColor
 
 /**
  * Renders a single keyboard key with appropriate styling and gesture handling.
@@ -52,7 +72,7 @@ import kotlinx.coroutines.launch
  * Gesture handling varies by key type:
  * - Character keys: tap to type, long-press to open a local accent strip when available
  * - Other keys: tap on release
- * - DELETE: custom pointer input for key-repeat (400ms delay, then every 50ms)
+ * - DELETE: custom pointer input for key-repeat (400ms delay, then every 100ms)
  */
 @Composable
 fun KeyButton(
@@ -60,9 +80,14 @@ fun KeyButton(
     isShifted: Boolean,
     isCapsLock: Boolean = false,
     onPress: () -> Unit,
+    onDeleteWord: () -> Unit = onPress,
     accentChars: List<String>? = null,
     onAccentSelected: ((String) -> Unit)? = null,
     hapticsEnabled: Boolean = true,
+    onSound: (KeyType) -> Unit = {},
+    labelsVisible: Boolean = true,
+    onTrackpadActiveChange: (Boolean) -> Unit = {},
+    onTrackpadMove: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val view = LocalView.current
@@ -92,12 +117,14 @@ fun KeyButton(
     }
 
     // Caps lock check must come before isShifted since caps lock also sets isShifted=true
-    val backgroundColor = when {
+    val releasedBackgroundColor = when {
         key.type == KeyType.SHIFT && isCapsLock -> DictusColors.AccentHighlight
         key.type == KeyType.SHIFT && isShifted -> DictusColors.Accent
         key.type == KeyType.CHARACTER || key.type == KeyType.SPACE -> LocalDictusColors.current.keyBackground
         else -> LocalDictusColors.current.keySpecialBackground
     }
+    val keyTextColor = LocalDictusColors.current.keyText
+    val backgroundColor = pressedKeyBackground(releasedBackgroundColor, keyTextColor, isPressed)
 
     val displayLabel = when (key.type) {
         KeyType.CHARACTER -> if (isShifted) key.label.uppercase() else key.label.lowercase()
@@ -117,7 +144,12 @@ fun KeyButton(
     // callbacks even though the coroutine launched by pointerInput(Unit) is
     // long-lived and would otherwise capture stale references.
     val currentOnPress = rememberUpdatedState(onPress)
+    val currentOnDeleteWord = rememberUpdatedState(onDeleteWord)
     val currentOnAccentSelected = rememberUpdatedState(onAccentSelected)
+    val currentHapticsEnabled = rememberUpdatedState(hapticsEnabled)
+    val currentOnSound = rememberUpdatedState(onSound)
+    val currentOnTrackpadActiveChange = rememberUpdatedState(onTrackpadActiveChange)
+    val currentOnTrackpadMove = rememberUpdatedState(onTrackpadMove)
 
     fun resolveAccentIndex(pointerX: Float): Int? {
         val accents = accentChars ?: return null
@@ -136,21 +168,30 @@ fun KeyButton(
         Modifier.pointerInput(Unit) {
             coroutineScope {
                 while (isActive) {
-                    awaitPointerEventScope {
+                    val initiatingPointerId = awaitPointerEventScope {
                         val event = awaitPointerEvent()
-                        if (event.type != PointerEventType.Press) return@awaitPointerEventScope
+                        if (event.type != PointerEventType.Press) return@awaitPointerEventScope null
+                        event.changes.firstOrNull { it.pressed && !it.previousPressed }?.id
                     }
+                    if (initiatingPointerId == null) continue
 
                     isPressed = true
-                    if (hapticsEnabled) HapticHelper.performKeyHaptic(view)
+                    if (currentHapticsEnabled.value) HapticHelper.performKeyHaptic(view)
+                    currentOnSound.value(key.type)
                     currentOnPress.value()
+                    var deletionCommandIndex = 1
 
                     val repeatJob = launch {
-                        delay(400L)
+                        delay(BackspaceRepeatPolicy.INITIAL_DELAY_MS)
                         while (isActive) {
-                            if (hapticsEnabled) HapticHelper.performKeyHaptic(view)
-                            currentOnPress.value()
-                            delay(50L)
+                            if (currentHapticsEnabled.value) HapticHelper.performKeyHaptic(view)
+                            currentOnSound.value(key.type)
+                            deletionCommandIndex++
+                            when (BackspaceRepeatPolicy.deletionFor(deletionCommandIndex)) {
+                                BackspaceDeletion.CHARACTER -> currentOnPress.value()
+                                BackspaceDeletion.WORD -> currentOnDeleteWord.value()
+                            }
+                            delay(BackspaceRepeatPolicy.REPEAT_INTERVAL_MS)
                         }
                     }
 
@@ -158,7 +199,7 @@ fun KeyButton(
                         var released = false
                         while (!released) {
                             val event = awaitPointerEvent()
-                            if (event.type == PointerEventType.Release) {
+                            if (event.changes.any { it.id == initiatingPointerId && !it.pressed }) {
                                 released = true
                             }
                         }
@@ -169,8 +210,79 @@ fun KeyButton(
                 }
             }
         }
-    } else {
+    } else if (key.type == KeyType.SPACE) {
         Modifier.pointerInput(Unit) {
+            coroutineScope {
+                while (isActive) {
+                    awaitPointerEventScope {
+                        val down = awaitPointerEvent()
+                        if (down.type != PointerEventType.Press) return@awaitPointerEventScope
+                        val pointer = down.changes.firstOrNull { it.pressed && !it.previousPressed }
+                            ?: return@awaitPointerEventScope
+
+                        var latestPositionX = pointer.position.x
+                        var trackpadActive = false
+                        var released = false
+                        var tapSucceeded = !pointer.isConsumed
+                        var shouldCommitSpace = false
+                        val motion = TrackpadMotionAccumulator(8.dp.toPx())
+
+                        isPressed = true
+                        if (currentHapticsEnabled.value) HapticHelper.performKeyHaptic(view)
+                        currentOnSound.value(key.type)
+
+                        val activationJob = launch {
+                            delay(300L)
+                            motion.start(latestPositionX)
+                            trackpadActive = true
+                            currentOnTrackpadActiveChange.value(true)
+                            if (currentHapticsEnabled.value) HapticHelper.performMicHaptic(view)
+                        }
+
+                        try {
+                            while (!released) {
+                                val event = awaitPointerEvent()
+                                val trackedPointer = event.changes.firstOrNull { it.id == pointer.id }
+                                if (trackedPointer != null) {
+                                    latestPositionX = trackedPointer.position.x
+                                    if (trackedPointer.isConsumed && !trackpadActive) {
+                                        tapSucceeded = false
+                                        released = true
+                                    } else {
+                                        if (trackpadActive) {
+                                            val steps = motion.moveTo(latestPositionX)
+                                            if (steps != 0) {
+                                                currentOnTrackpadMove.value(steps)
+                                                if (currentHapticsEnabled.value) {
+                                                    repeat(abs(steps)) {
+                                                        HapticHelper.performKeyHaptic(view)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (!trackedPointer.pressed) {
+                                            tapSucceeded = tapSucceeded &&
+                                                trackedPointer.position.x in 0f..size.width.toFloat() &&
+                                                trackedPointer.position.y in 0f..size.height.toFloat()
+                                            released = true
+                                        }
+                                    }
+                                }
+                            }
+                            shouldCommitSpace = !trackpadActive && tapSucceeded
+                        } finally {
+                            activationJob.cancel()
+                            isPressed = false
+                            if (trackpadActive) currentOnTrackpadActiveChange.value(false)
+                        }
+
+                        if (shouldCommitSpace) currentOnPress.value()
+                    }
+                }
+            }
+        }
+    } else {
+        Modifier.pointerInput(key.type, accentChars) {
             coroutineScope {
                 while (isActive) {
                     awaitPointerEventScope {
@@ -178,7 +290,9 @@ fun KeyButton(
                         val down = awaitPointerEvent()
                         if (down.type != PointerEventType.Press) return@awaitPointerEventScope
 
-                        val supportsAccentPopup = key.type == KeyType.CHARACTER && !accentChars.isNullOrEmpty()
+                        val supportsAccentPopup =
+                            (key.type == KeyType.CHARACTER || key.type == KeyType.ACCENT_ADAPTIVE) &&
+                                !accentChars.isNullOrEmpty()
                         val downPosition = down.changes.firstOrNull()?.position ?: Offset.Zero
                         var accentTrackingActive = false
                         var released = false
@@ -186,7 +300,8 @@ fun KeyButton(
                         isPressed = true
                         showAccentPopup = false
                         highlightedAccentIndex = null
-                        if (hapticsEnabled) HapticHelper.performKeyHaptic(view)
+                        if (currentHapticsEnabled.value) HapticHelper.performKeyHaptic(view)
+                        currentOnSound.value(key.type)
 
                         val longPressJob = launch {
                             if (supportsAccentPopup) {
@@ -236,9 +351,6 @@ fun KeyButton(
         }
     }
 
-    // Capture key text color for use in non-composable drawBehind scope
-    val keyTextColor = LocalDictusColors.current.keyText
-
     // Draw an underline on the shift key when caps lock is active
     val capsLockUnderline = if (key.type == KeyType.SHIFT && isCapsLock) {
         Modifier.drawBehind {
@@ -254,6 +366,11 @@ fun KeyButton(
         Modifier
     }
 
+    val labelAlpha by animateFloatAsState(
+        targetValue = if (labelsVisible) 1f else 0f,
+        label = "keyboardLabelAlpha",
+    )
+
     Box(
         modifier = modifier
             .height(48.dp)
@@ -266,6 +383,7 @@ fun KeyButton(
             .clip(shape)
             .background(backgroundColor)
             .then(capsLockUnderline)
+            .semantics { keyPressed = isPressed }
             .then(gestureModifier),
         contentAlignment = Alignment.Center,
     ) {
@@ -274,6 +392,7 @@ fun KeyButton(
             color = LocalDictusColors.current.keyText,
             fontSize = fontSize,
             textAlign = TextAlign.Center,
+            modifier = Modifier.alpha(labelAlpha),
         )
 
         // Character preview popup (like Gboard) — shown on touch-down

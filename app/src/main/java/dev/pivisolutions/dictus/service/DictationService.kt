@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioManager
 import android.os.Binder
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -20,9 +21,17 @@ import dagger.hilt.InstallIn
 import dev.pivisolutions.dictus.R
 import dev.pivisolutions.dictus.audio.DictationSoundPlayer
 import dev.pivisolutions.dictus.core.preferences.PreferenceKeys
+import dev.pivisolutions.dictus.core.logging.PrivacySafeLog
 import dev.pivisolutions.dictus.core.service.DictationController
 import dev.pivisolutions.dictus.core.service.DictationState
+import dev.pivisolutions.dictus.core.service.SttEngineState
+import dev.pivisolutions.dictus.core.service.TranscriptionRetention
+import dev.pivisolutions.dictus.core.stt.SttProvider
 import dev.pivisolutions.dictus.model.ModelCatalog
+import dev.pivisolutions.dictus.core.premium.PremiumFlags
+import dev.pivisolutions.dictus.history.TranscriptionHistoryMetadata
+import dev.pivisolutions.dictus.history.TranscriptionHistoryWriter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -38,7 +47,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import dev.pivisolutions.dictus.asr.ParakeetProvider
-import dev.pivisolutions.dictus.core.stt.SttProvider
 import dev.pivisolutions.dictus.core.whisper.TextPostProcessor
 import dev.pivisolutions.dictus.model.AiProvider
 import dev.pivisolutions.dictus.model.ModelManager
@@ -73,6 +81,7 @@ import timber.log.Timber
 @InstallIn(SingletonComponent::class)
 interface DictationServiceEntryPoint {
     fun dataStore(): DataStore<Preferences>
+    fun transcriptionHistoryWriter(): TranscriptionHistoryWriter
 }
 
 class DictationService : Service(), DictationController {
@@ -83,6 +92,7 @@ class DictationService : Service(), DictationController {
         const val ACTION_START = "dev.pivisolutions.dictus.action.START"
         const val ACTION_STOP = "dev.pivisolutions.dictus.action.STOP"
         private const val TRANSCRIPTION_TIMEOUT_MS = 120_000L
+        private const val ENGINE_IDLE_TIMEOUT_MS = 10 * 60 * 1_000L
     }
 
     /**
@@ -96,7 +106,16 @@ class DictationService : Service(), DictationController {
         ).dataStore()
     }
 
-    private var currentProvider: SttProvider? = null
+    private val transcriptionHistoryWriter: TranscriptionHistoryWriter by lazy {
+        EntryPointAccessors.fromApplication(
+            applicationContext,
+            DictationServiceEntryPoint::class.java,
+        ).transcriptionHistoryWriter()
+    }
+
+    private val providerSlot by lazy {
+        SttProviderSlot(serviceScope, ENGINE_IDLE_TIMEOUT_MS)
+    }
     private val modelManager by lazy { ModelManager(applicationContext) }
     private val modelDownloader by lazy { ModelDownloader(modelManager) }
 
@@ -115,9 +134,11 @@ class DictationService : Service(), DictationController {
     // Coroutine scope tied to service lifecycle.
     // SupervisorJob ensures one child failure doesn't cancel others.
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private var audioCaptureManager: AudioCaptureManager? = null
     private var timerJob: Job? = null
+    private var prewarmJob: Job? = null
     private var elapsedMs: Long = 0L
 
     // Sound feedback for recording lifecycle events.
@@ -135,7 +156,19 @@ class DictationService : Service(), DictationController {
     /** Observable state for the IME to collect. */
     override val state: StateFlow<DictationState> = _state.asStateFlow()
 
-    override fun onBind(intent: Intent): IBinder = binder
+    /** Native engine readiness for IME/UI loading gates. */
+    override val engineState: StateFlow<SttEngineState>
+        get() = providerSlot.state
+
+    override fun onBind(intent: Intent): IBinder {
+        prewarmEngine()
+        return binder
+    }
+
+    override fun prewarmEngine() {
+        if (prewarmJob?.isActive == true) return
+        prewarmJob = serviceScope.launch(Dispatchers.Default) { prewarmActiveModel() }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -275,7 +308,7 @@ class DictationService : Service(), DictationController {
      * typical dictation (5-30s audio). 30s covers worst-case long recordings.
      * A stuck JNI call should not block the UI indefinitely.
      */
-    override suspend fun confirmAndTranscribe(): String? {
+    override suspend fun confirmAndTranscribe(retention: TranscriptionRetention): String? {
         // 1. Stop recording and get audio samples
         val samples = audioCaptureManager?.stop() ?: FloatArray(0)
         timerJob?.cancel()
@@ -285,6 +318,18 @@ class DictationService : Service(), DictationController {
 
         if (samples.isEmpty()) {
             Timber.w("confirmAndTranscribe: no audio samples captured")
+            _state.value = DictationState.Idle
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return null
+        }
+
+        if (!RecordingDurationPolicy.canTranscribe(samples.size)) {
+            Timber.w(
+                "confirmAndTranscribe: clip too short (%d samples, minimum=%d)",
+                samples.size,
+                RecordingDurationPolicy.MINIMUM_SAMPLE_COUNT,
+            )
             _state.value = DictationState.Idle
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -322,23 +367,16 @@ class DictationService : Service(), DictationController {
                 return null
             }
 
-            // 4. Get or initialize the correct provider (handles engine switching)
-            val provider = getOrInitProvider(activeModelKey, modelPath)
-            if (provider == null) {
-                Timber.e("Failed to get STT provider for model '%s'", activeModelKey)
-                _state.value = DictationState.Idle
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-                return null
-            }
-
-            // 5. Transcribe with timeout
-            val rawText = withTimeoutOrNull(TRANSCRIPTION_TIMEOUT_MS) {
-                provider.transcribe(samples, whisperLanguage ?: "fr")
-            }
+            // 4. Initialize and use the selected provider/model under one ownership lock.
+            val rawText = transcribeWithProvider(
+                modelKey = activeModelKey,
+                modelPath = modelPath,
+                samples = samples,
+                language = whisperLanguage ?: "fr",
+            )
 
             if (rawText == null) {
-                Timber.e("Transcription timed out after %d ms", TRANSCRIPTION_TIMEOUT_MS)
+                Timber.e("Provider initialization failed or transcription timed out")
                 _state.value = DictationState.Idle
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -347,13 +385,34 @@ class DictationService : Service(), DictationController {
 
             // 6. Post-process (trim + punctuation)
             val processedText = TextPostProcessor.process(rawText)
-            Timber.d("Transcription result: raw='%s', processed='%s'", rawText, processedText)
+            Timber.d(PrivacySafeLog.transcriptionProcessed(rawText, processedText))
+
+            if (processedText.isNotEmpty()) {
+                val model = ModelCatalog.findByKey(activeModelKey)
+                transcriptionHistoryWriter.persist(
+                    // Pro gate: callers still express the retention their context deserves,
+                    // the flag only ever downgrades it (see PremiumFlags.HISTORY_VISIBLE).
+                    retention = PremiumFlags.effectiveRetention(retention),
+                    text = processedText,
+                    metadata = TranscriptionHistoryMetadata(
+                        requestedLanguage = languagePref,
+                        durationMillis = samples.size * 1_000L / RecordingDurationPolicy.SAMPLE_RATE_HZ,
+                        modelKey = activeModelKey,
+                        provider = model?.provider?.name ?: "UNKNOWN",
+                    ),
+                )
+            }
 
             _state.value = DictationState.Idle
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
 
             if (processedText.isEmpty()) null else processedText
+        } catch (cancellation: CancellationException) {
+            _state.value = DictationState.Idle
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            throw cancellation
         } catch (e: Exception) {
             Timber.e(e, "Transcription failed")
             _state.value = DictationState.Idle
@@ -371,36 +430,73 @@ class DictationService : Service(), DictationController {
      * Strict single-engine policy: if the provider type changes, release() the current
      * one before initialize() on the new one — prevents OOM from dual engine loading.
      */
-    private suspend fun getOrInitProvider(modelKey: String, modelPath: String): SttProvider? {
+    private suspend fun transcribeWithProvider(
+        modelKey: String,
+        modelPath: String,
+        samples: FloatArray,
+        language: String,
+    ): String? {
+        return withProviderForModel(modelKey, modelPath) { provider ->
+            withTimeoutOrNull(TRANSCRIPTION_TIMEOUT_MS) {
+                provider.transcribe(samples, language)
+            }
+        }
+    }
+
+    /**
+     * Initialize the downloaded active model when the first client binds.
+     *
+     * This deliberately uses [ModelManager.getModelPath] instead of the downloader:
+     * showing the keyboard must never trigger an unexpected network transfer. The
+     * same provider slot used by transcription provides the single-flight guarantee.
+     */
+    private suspend fun prewarmActiveModel() {
+        val activeModelKey = dataStore.data.first()[PreferenceKeys.ACTIVE_MODEL]
+            ?: ModelCatalog.DEFAULT_KEY
+        val modelPath = modelManager.getModelPath(activeModelKey)
+        if (modelPath == null) {
+            providerSlot.markModelMissing(activeModelKey)
+            Timber.i("Engine prewarm skipped: model=%s is not downloaded yet", activeModelKey)
+            return
+        }
+
+        try {
+            val ready = withProviderForModel(activeModelKey, modelPath) { true } == true
+            if (ready) {
+                Timber.d("Engine prewarm complete for model=%s", activeModelKey)
+            } else {
+                Timber.w("Engine prewarm failed for model=%s", activeModelKey)
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (failure: Exception) {
+            Timber.e(failure, "Engine prewarm failed for model=%s", activeModelKey)
+        }
+    }
+
+    private suspend fun <T> withProviderForModel(
+        modelKey: String,
+        modelPath: String,
+        block: suspend (SttProvider) -> T,
+    ): T? {
         val info = ModelCatalog.findByKey(modelKey) ?: return null
         val neededProviderClass = when (info.provider) {
             AiProvider.WHISPER -> WhisperProvider::class
             AiProvider.PARAKEET -> ParakeetProvider::class
         }
 
-        val current = currentProvider
-        // If provider type changed, release current before creating new
-        if (current != null && current::class != neededProviderClass) {
-            Timber.d("Switching provider: %s -> %s", current.providerId, info.provider)
-            current.release()
-            currentProvider = null
-        }
-
-        // Reuse existing provider if same type and ready
-        if (currentProvider?.isReady == true) return currentProvider
-
-        // Create and initialize new provider
-        val newProvider = when (info.provider) {
-            AiProvider.WHISPER -> WhisperProvider()
-            AiProvider.PARAKEET -> ParakeetProvider()
-        }
-        val initialized = newProvider.initialize(modelPath)
-        if (!initialized) {
-            Timber.e("Failed to initialize %s provider", info.provider)
-            return null
-        }
-        currentProvider = newProvider
-        return newProvider
+        return providerSlot.withProvider(
+            requestedModelKey = modelKey,
+            modelPath = modelPath,
+            requiredProviderClass = neededProviderClass,
+            createProvider = {
+                when (info.provider) {
+                    AiProvider.WHISPER -> WhisperProvider()
+                    AiProvider.PARAKEET -> ParakeetProvider()
+                }
+            },
+            useProvider = block,
+        )
     }
 
     /**
@@ -423,7 +519,7 @@ class DictationService : Service(), DictationController {
      * Initialize AudioCaptureManager and start the read loop + timer.
      */
     private fun startAudioCapture() {
-        val manager = AudioCaptureManager()
+        val manager = AudioCaptureManager(getSystemService(AudioManager::class.java))
         audioCaptureManager = manager
 
         // Energy updates come from the capture read loop (Dispatchers.Default).
@@ -503,11 +599,15 @@ class DictationService : Service(), DictationController {
 
     override fun onDestroy() {
         super.onDestroy()
-        serviceScope.launch {
-            currentProvider?.release()
-        }
         if (::soundPlayer.isInitialized) soundPlayer.release()
         serviceScope.cancel()
+        cleanupScope.launch {
+            try {
+                providerSlot.release()
+            } finally {
+                cleanupScope.cancel()
+            }
+        }
         Timber.d("DictationService destroyed")
     }
 }

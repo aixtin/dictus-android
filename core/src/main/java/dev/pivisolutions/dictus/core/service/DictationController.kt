@@ -2,6 +2,12 @@ package dev.pivisolutions.dictus.core.service
 
 import kotlinx.coroutines.flow.StateFlow
 
+/** Explicit caller-owned lifetime for a successful transcription. */
+enum class TranscriptionRetention {
+    EPHEMERAL,
+    PERSIST_HISTORY,
+}
+
 /**
  * Contract for controlling dictation recording from the IME.
  *
@@ -18,6 +24,12 @@ interface DictationController {
     /** Observable state for the IME to collect via collectAsState(). */
     val state: StateFlow<DictationState>
 
+    /** Observable native engine readiness, independent from recording state. */
+    val engineState: StateFlow<SttEngineState>
+
+    /** Warm the downloaded active model without starting audio or downloading data. */
+    fun prewarmEngine()
+
     /** Start recording via foreground service. */
     fun startRecording()
 
@@ -32,5 +44,5 @@ interface DictationController {
      * Transitions: Recording -> Transcribing -> Idle.
      * Returns the post-processed transcribed text, or null on failure.
      */
-    suspend fun confirmAndTranscribe(): String?
+    suspend fun confirmAndTranscribe(retention: TranscriptionRetention): String?
 }

@@ -1,8 +1,8 @@
 package dev.pivisolutions.dictus.whisper
 
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
+import dev.pivisolutions.dictus.core.logging.PrivacySafeLog
 import timber.log.Timber
 import java.util.concurrent.Executors
 
@@ -22,9 +22,7 @@ import java.util.concurrent.Executors
 class WhisperContext private constructor(private var ptr: Long) {
 
     // Single-thread executor ensures all whisper.cpp calls are serialized.
-    private val scope: CoroutineScope = CoroutineScope(
-        Executors.newSingleThreadExecutor().asCoroutineDispatcher()
-    )
+    private val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
     /**
      * Transcribe audio samples to text.
@@ -34,7 +32,7 @@ class WhisperContext private constructor(private var ptr: Long) {
      * @return Transcribed text (all segments joined). Empty string if transcription fails.
      */
     suspend fun transcribeData(data: FloatArray, language: String = "fr"): String =
-        withContext(scope.coroutineContext) {
+        withContext(dispatcher) {
             require(ptr != 0L) { "WhisperContext has been released" }
             val numThreads = WhisperCpuConfig.preferredThreadCount
             Timber.d("Transcribing %d samples with %d threads, language=%s", data.size, numThreads, language)
@@ -50,18 +48,24 @@ class WhisperContext private constructor(private var ptr: Long) {
             }
 
             val durationMs = System.currentTimeMillis() - startMs
-            Timber.d("Transcription complete: %d segments, %d ms, result='%s'", textCount, durationMs, result)
+            Timber.d(PrivacySafeLog.transcriptionComplete(textCount, durationMs, result))
             return@withContext result
         }
 
     /**
      * Release native resources. Context cannot be used after this call.
      */
-    suspend fun release() = withContext(scope.coroutineContext) {
-        if (ptr != 0L) {
-            WhisperLib.freeContext(ptr)
-            Timber.d("WhisperContext released")
-            ptr = 0L
+    suspend fun release() {
+        try {
+            withContext(dispatcher) {
+                if (ptr != 0L) {
+                    WhisperLib.freeContext(ptr)
+                    Timber.d("WhisperContext released")
+                    ptr = 0L
+                }
+            }
+        } finally {
+            dispatcher.close()
         }
     }
 

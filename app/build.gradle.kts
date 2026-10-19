@@ -1,3 +1,28 @@
+import java.io.ByteArrayOutputStream
+
+/**
+ * The git revision the binary was built from, resolved at configuration time.
+ *
+ * WHY inject it rather than read git at runtime: the APK has no repository to ask, and a
+ * field report has to state which commit produced it. Every log export then carries the
+ * revision with no manual discipline, which is what makes "are you on the right build?"
+ * answerable from the file alone (#112).
+ *
+ * Returns "unknown" outside a working tree (a source archive, a CI checkout without git).
+ * A build with no revision information has to keep saying so rather than guess.
+ */
+fun gitOutput(vararg command: String): String = try {
+    val output = ByteArrayOutputStream()
+    val result = providers.exec {
+        commandLine(*command)
+        isIgnoreExitValue = true
+    }
+    result.result.get().exitValue.let { if (it != 0) "unknown" else result.standardOutput.asText.get().trim() }
+        .ifEmpty { "unknown" }
+} catch (_: Exception) {
+    "unknown"
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -32,6 +57,15 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
+        // Injected into BuildConfig so every log export names the exact commit (#112).
+        buildConfigField("String", "GIT_SHA", "\"${gitOutput("git", "rev-parse", "--short=12", "HEAD")}\"")
+        buildConfigField("String", "GIT_BRANCH", "\"${gitOutput("git", "rev-parse", "--abbrev-ref", "HEAD")}\"")
+        buildConfigField(
+            "boolean",
+            "GIT_DIRTY",
+            (gitOutput("git", "status", "--porcelain").let { it != "unknown" && it.isNotEmpty() }).toString(),
+        )
+
         val ciVersionCode = System.getenv("VERSION_CODE")?.toIntOrNull()
         val ciVersionName = System.getenv("VERSION_NAME")
         if (ciVersionCode != null) versionCode = ciVersionCode
@@ -80,6 +114,10 @@ android {
     }
 }
 
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 licensee {
     allow("Apache-2.0")
     allow("MIT")
@@ -114,11 +152,11 @@ androidComponents {
             dependsOn(copyTask)
         }
 
-        // Lint tasks also scan generated assets — declare dependency to avoid implicit ordering errors.
-        tasks.matching { it.name.startsWith("lintVital") && it.name.contains(capitalizedVariant) }.configureEach {
-            dependsOn(copyTask)
-        }
-        tasks.matching { it.name == "generate${capitalizedVariant}LintVitalReportModel" }.configureEach {
+        // Every lint task that scans generated assets must wait for the copied report.
+        tasks.matching {
+            (it.name.startsWith("lint") || it.name.contains("Lint")) &&
+                it.name.contains(capitalizedVariant)
+        }.configureEach {
             dependsOn(copyTask)
         }
     }
@@ -148,6 +186,9 @@ dependencies {
     implementation(libs.core.ktx)
     implementation(libs.lifecycle.runtime.ktx)
     implementation(libs.androidx.appcompat)
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
 
     debugImplementation(libs.compose.ui.tooling)
 
@@ -159,5 +200,6 @@ dependencies {
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.test.ext.junit)
     testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.room.testing)
     debugImplementation(libs.compose.ui.test.manifest)
 }

@@ -16,6 +16,10 @@ import dev.pivisolutions.dictus.core.theme.ThemeMode
 import dev.pivisolutions.dictus.ime.model.KeyDefinition
 import dev.pivisolutions.dictus.ime.model.KeyboardLayer
 import dev.pivisolutions.dictus.ime.model.KeyType
+import dev.pivisolutions.dictus.ime.model.FrenchAdaptiveKey
+import dev.pivisolutions.dictus.ime.input.NextWordPredictionToken
+import dev.pivisolutions.dictus.ime.language.LanguageProfile
+import dev.pivisolutions.dictus.ime.language.frenchLanguageProfile
 import timber.log.Timber
 
 /**
@@ -36,26 +40,38 @@ import timber.log.Timber
 fun KeyboardScreen(
     onCommitText: (String) -> Unit,
     onDeleteBackward: () -> Unit,
+    onDeleteWordBackward: () -> Unit = onDeleteBackward,
     onSendReturn: () -> Unit,
-    onSwitchKeyboard: () -> Unit,
+    languageProfile: LanguageProfile = frenchLanguageProfile,
+    onCycleLanguage: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     onMicTap: () -> Unit = {},
+    isMicEnabled: Boolean = true,
     isEmojiPickerOpen: Boolean = false,
     onEmojiToggle: () -> Unit = {},
     onEmojiSelected: (String) -> Unit = {},
     currentWord: String = "",
     suggestions: List<String> = emptyList(),
-    onSuggestionSelected: (String) -> Unit = {},
+    suggestionMode: SuggestionPresentationMode = SuggestionPresentationMode.COMPLETION,
+    onSuggestionSelected: (String, NextWordPredictionToken?) -> Unit = { _, _ -> },
+    predictionToken: NextWordPredictionToken? = null,
     onCurrentWordSelected: () -> Unit = {},
     themeMode: ThemeMode = ThemeMode.DARK,
     initialLayer: KeyboardLayer = KeyboardLayer.LETTERS,
     hapticsEnabled: Boolean = true,
+    onKeySound: (KeyType) -> Unit = {},
+    onMoveCursor: (Int) -> Unit = {},
     keyboardLayout: String = "azerty",  // NEW — AZERTY/QWERTY from DataStore
+    frenchAdaptiveKeyState: FrenchAdaptiveKey.State = FrenchAdaptiveKey.DEFAULT,
+    onFrenchAdaptiveKey: () -> Unit = {},
+    onFrenchAdaptiveVariant: (String) -> Unit = {},
 ) {
     // Keyboard state — initialLayer drives the starting layer from the KEYBOARD_MODE preference.
     // remember(initialLayer) ensures recomposition resets the layer if the preference changes.
     var currentLayer by remember(initialLayer) { mutableStateOf(initialLayer) }
     var isShifted by remember { mutableStateOf(false) }
     var isCapsLock by remember { mutableStateOf(false) }
+    var isTrackpadActive by remember { mutableStateOf(false) }
     // keyboardLayout comes from DataStore via DictusImeService.
     // remember(keyboardLayout) resets the state when the preference changes in Settings,
     // so the user sees the new layout immediately without restarting the keyboard.
@@ -87,15 +103,20 @@ fun KeyboardScreen(
                 SuggestionBar(
                     currentWord = currentWord,
                     suggestions = suggestions,
+                    mode = suggestionMode,
                     onSuggestionSelected = onSuggestionSelected,
+                    predictionToken = predictionToken,
                     onCurrentWordSelected = onCurrentWordSelected,
                 )
 
                 // Mic button row above keyboard (46.dp)
                 MicButtonRow(
-                    onSwitchKeyboard = onSwitchKeyboard,
+                    languageShortCode = languageProfile.shortCode,
+                    onCycleLanguage = onCycleLanguage,
+                    onOpenSettings = onOpenSettings,
                     onMicTap = onMicTap,
                     isRecording = false,
+                    isMicEnabled = isMicEnabled,
                 )
 
                 // Keyboard area (264.dp) for 48.dp keys with existing row spacing.
@@ -104,7 +125,14 @@ fun KeyboardScreen(
                     isShifted = isShifted,
                     isCapsLock = isCapsLock,
                     layout = currentLayout,
+                    languageProfile = languageProfile,
+                    onDeleteWord = onDeleteWordBackward,
                     hapticsEnabled = hapticsEnabled,
+                    onKeySound = onKeySound,
+                    labelsVisible = !isTrackpadActive,
+                    onTrackpadActiveChange = { isTrackpadActive = it },
+                    onTrackpadMove = onMoveCursor,
+                    frenchAdaptiveKeyState = frenchAdaptiveKeyState,
                     onKeyPress = { key ->
                         handleKeyPress(
                             key = key,
@@ -116,6 +144,7 @@ fun KeyboardScreen(
                             onDeleteBackward = onDeleteBackward,
                             onSendReturn = onSendReturn,
                             onEmojiToggle = onEmojiToggle,
+                            onFrenchAdaptiveKey = onFrenchAdaptiveKey,
                             onShiftChanged = { shifted, caps, tapTime ->
                                 isShifted = shifted
                                 isCapsLock = caps
@@ -139,7 +168,10 @@ fun KeyboardScreen(
                         if (isShifted && !isCapsLock) {
                             isShifted = false
                         }
-                        Timber.d("Accent selected: %s", accent)
+                    },
+                    onFrenchAdaptiveVariant = { accent ->
+                        onFrenchAdaptiveVariant(accent)
+                        if (isShifted && !isCapsLock) isShifted = false
                     },
                     modifier = Modifier.height(264.dp),
                 )
@@ -164,12 +196,11 @@ private fun handleKeyPress(
     onDeleteBackward: () -> Unit,
     onSendReturn: () -> Unit,
     onEmojiToggle: () -> Unit = {},
+    onFrenchAdaptiveKey: () -> Unit,
     onShiftChanged: (shifted: Boolean, caps: Boolean, tapTime: Long) -> Unit,
     onLayerChanged: (KeyboardLayer) -> Unit,
     onAutoUnshift: () -> Unit,
 ) {
-    Timber.d("Key pressed: %s", key.label)
-
     when (key.type) {
         KeyType.CHARACTER -> {
             val output = if (isShifted) key.output.uppercase() else key.output
@@ -213,8 +244,8 @@ private fun handleKeyPress(
             Timber.d("Mic not yet implemented")
         }
         KeyType.ACCENT_ADAPTIVE -> {
-            // Commit the apostrophe character
-            onCommitText(key.output)
+            onFrenchAdaptiveKey()
+            onAutoUnshift()
         }
         KeyType.KEYBOARD_SWITCH -> {
             // Handled by the service directly

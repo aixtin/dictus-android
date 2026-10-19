@@ -9,6 +9,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.pivisolutions.dictus.core.preferences.PreferenceKeys
+import dev.pivisolutions.dictus.ime.input.AutocorrectRuntimePolicy
+import dev.pivisolutions.dictus.ime.language.KeyboardPreferenceResolver
 import dev.pivisolutions.dictus.model.ModelCatalog
 import dev.pivisolutions.dictus.model.ModelManager
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +53,11 @@ class SettingsViewModel @Inject constructor(
         .map { it[PreferenceKeys.TRANSCRIPTION_LANGUAGE] ?: "auto" }
         .stateIn(viewModelScope, SharingStarted.Eagerly, "auto")
 
+    /** Keyboard correction language, independent from transcription language. */
+    val keyboardLanguage: StateFlow<String> = dataStore.data
+        .map { KeyboardPreferenceResolver.language(it[PreferenceKeys.KEYBOARD_LANGUAGE]).code }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "fr")
+
     /** Key of the currently active Whisper model. */
     val activeModel: StateFlow<String> = dataStore.data
         .map { it[PreferenceKeys.ACTIVE_MODEL] ?: ModelCatalog.DEFAULT_KEY }
@@ -61,9 +68,26 @@ class SettingsViewModel @Inject constructor(
         .map { it[PreferenceKeys.SUGGESTIONS_ENABLED] ?: true }
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
+    /** Automatic correction intent, independent from suggestion-bar visibility and ASR. */
+    val autocorrectEnabled: StateFlow<Boolean> = dataStore.data
+        .map { preferences ->
+            val profile = KeyboardPreferenceResolver
+                .language(preferences[PreferenceKeys.KEYBOARD_LANGUAGE]).profile
+            AutocorrectRuntimePolicy.isEnabled(
+                preferences[PreferenceKeys.AUTOCORRECT_ENABLED],
+                profile,
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
     /** Whether haptic feedback is enabled on dictation actions. */
     val hapticsEnabled: StateFlow<Boolean> = dataStore.data
         .map { it[PreferenceKeys.HAPTICS_ENABLED] ?: true }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    /** Whether platform keyboard sound effects are enabled for IME key presses. */
+    val keySoundsEnabled: StateFlow<Boolean> = dataStore.data
+        .map { it[PreferenceKeys.KEY_SOUNDS_ENABLED] ?: true }
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
     /** Whether the audio dictation start/stop sound is enabled. */
@@ -73,7 +97,15 @@ class SettingsViewModel @Inject constructor(
 
     /** Currently selected keyboard layout key ("azerty" or "qwerty"). */
     val keyboardLayout: StateFlow<String> = dataStore.data
-        .map { it[PreferenceKeys.KEYBOARD_LAYOUT] ?: "azerty" }
+        .map { preferences ->
+            val language = KeyboardPreferenceResolver.language(
+                preferences[PreferenceKeys.KEYBOARD_LANGUAGE],
+            )
+            KeyboardPreferenceResolver.layout(
+                preferences[PreferenceKeys.KEYBOARD_LAYOUT],
+                language,
+            ).persistedValue
+        }
         .stateIn(viewModelScope, SharingStarted.Eagerly, "azerty")
 
     /**
@@ -95,6 +127,14 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    /** Persist keyboard language without changing ASR language or an explicit layout. */
+    fun setKeyboardLanguage(languageCode: String) {
+        val resolved = KeyboardPreferenceResolver.language(languageCode)
+        viewModelScope.launch {
+            dataStore.edit { it[PreferenceKeys.KEYBOARD_LANGUAGE] = resolved.code }
+        }
+    }
+
     /** Persist the selected active model key to DataStore. */
     fun setActiveModel(key: String) {
         viewModelScope.launch {
@@ -111,11 +151,36 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    /** Toggle automatic correction without changing suggestion-bar visibility. */
+    fun toggleAutocorrect() {
+        viewModelScope.launch {
+            dataStore.edit { preferences ->
+                val profile = KeyboardPreferenceResolver
+                    .language(preferences[PreferenceKeys.KEYBOARD_LANGUAGE]).profile
+                val current = AutocorrectRuntimePolicy.isEnabled(
+                    preferences[PreferenceKeys.AUTOCORRECT_ENABLED],
+                    profile,
+                )
+                preferences[PreferenceKeys.AUTOCORRECT_ENABLED] = !current
+            }
+        }
+    }
+
     /** Toggle haptic feedback on/off and persist the new value. */
     fun toggleHaptics() {
         viewModelScope.launch {
             dataStore.edit { prefs ->
                 prefs[PreferenceKeys.HAPTICS_ENABLED] = !(prefs[PreferenceKeys.HAPTICS_ENABLED] ?: true)
+            }
+        }
+    }
+
+    /** Toggle keyboard key sounds independently from recording lifecycle sounds. */
+    fun toggleKeySounds() {
+        viewModelScope.launch {
+            dataStore.edit { prefs ->
+                prefs[PreferenceKeys.KEY_SOUNDS_ENABLED] =
+                    !(prefs[PreferenceKeys.KEY_SOUNDS_ENABLED] ?: true)
             }
         }
     }

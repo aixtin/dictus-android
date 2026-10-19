@@ -49,3 +49,21 @@ Voir `design/README.md` pour la liste des frames et IDs.
 - Pierre est debutant en Kotlin/Android — expliquer les concepts cles
 - Toujours expliquer le "pourquoi" derriere les choix d'architecture Android
 - L'app iOS (repo dictus) sert de reference fonctionnelle
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on `getdictus/dictus-android`, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Physical test label
+
+`needs-physical-test` marks PRs touching audio/mic/transcription: test on a physical device with Pierre before merge. Auto-applied from `.github/labeler.yml`; only Titus removes it, after Pierre validates. See `docs/agents/physical-test-label.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.

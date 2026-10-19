@@ -5,6 +5,7 @@ build/
 
 # Android
 local.properties
+.cxx/
 *.apk
 *.aab
 
@@ -20,3 +21,7 @@ Thumbs.db
 *.jks
 *.keystore
 keystore.properties
+
+# Asset builder download cache
+.cache/
+tools/__pycache__/
