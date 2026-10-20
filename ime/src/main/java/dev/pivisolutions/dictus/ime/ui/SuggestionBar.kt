@@ -4,21 +4,31 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.pivisolutions.dictus.core.theme.LocalDictusColors
+import dev.pivisolutions.dictus.ime.R
 import dev.pivisolutions.dictus.ime.input.NextWordPredictionToken
 
 enum class SuggestionPresentationMode { COMPLETION, PREDICTION }
@@ -33,7 +43,13 @@ fun SuggestionBar(
     modifier: Modifier = Modifier,
     mode: SuggestionPresentationMode = SuggestionPresentationMode.COMPLETION,
     predictionToken: NextWordPredictionToken? = null,
+    isDictationUndoAvailable: Boolean = false,
+    onUndoDictation: () -> Unit = {},
 ) {
+    if (isDictationUndoAvailable) {
+        DictationUndoBar(onUndoDictation = onUndoDictation, modifier = modifier)
+        return
+    }
     val slots = when (mode) {
         SuggestionPresentationMode.COMPLETION -> listOf(currentWord) + suggestions.take(2)
         SuggestionPresentationMode.PREDICTION -> suggestions.take(3)
@@ -94,6 +110,48 @@ fun SuggestionBar(
                         .background(LocalDictusColors.current.borderSubtle),
                 )
             }
+        }
+    }
+}
+
+/**
+ * Shown in place of the suggestion slots right after a dictation insertion: the slots are empty
+ * at that point, and the offer disappears with the first keystroke or caret move.
+ */
+@Composable
+private fun DictationUndoBar(onUndoDictation: () -> Unit, modifier: Modifier = Modifier) {
+    val description = stringResource(R.string.ime_undo_dictation_description)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(36.dp)
+            .background(MaterialTheme.colorScheme.surface),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier
+                .height(36.dp)
+                .clickable(onClick = onUndoDictation)
+                .clearAndSetSemantics {
+                    contentDescription = description
+                    role = Role.Button
+                    onClick { onUndoDictation(); true }
+                }
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_undo),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = stringResource(R.string.ime_undo_dictation),
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 14.sp,
+            )
         }
     }
 }

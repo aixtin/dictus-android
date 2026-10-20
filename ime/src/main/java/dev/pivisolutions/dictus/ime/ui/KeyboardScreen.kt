@@ -55,6 +55,8 @@ fun KeyboardScreen(
     suggestionMode: SuggestionPresentationMode = SuggestionPresentationMode.COMPLETION,
     onSuggestionSelected: (String, NextWordPredictionToken?) -> Unit = { _, _ -> },
     predictionToken: NextWordPredictionToken? = null,
+    isDictationUndoAvailable: Boolean = false,
+    onUndoDictation: () -> Unit = {},
     onCurrentWordSelected: () -> Unit = {},
     themeMode: ThemeMode = ThemeMode.DARK,
     initialLayer: KeyboardLayer = KeyboardLayer.LETTERS,
@@ -107,6 +109,8 @@ fun KeyboardScreen(
                     onSuggestionSelected = onSuggestionSelected,
                     predictionToken = predictionToken,
                     onCurrentWordSelected = onCurrentWordSelected,
+                    isDictationUndoAvailable = isDictationUndoAvailable,
+                    onUndoDictation = onUndoDictation,
                 )
 
                 // Mic button row above keyboard (46.dp)
