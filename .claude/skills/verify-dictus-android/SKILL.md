@@ -111,7 +111,7 @@ $H/log.sh wait 'Recording cancelled' 15 "$M" # prints the line, exit 1 after 15 
 $H/log.sh since "$M"                         # everything Dictus logged since the mark
 ```
 
-**The recipe this skill is proven on** — `dictation.cancel` from the keyboard, 2026-10-20, run `20261020-215152-0f15824`:
+**The recipe this skill is proven on** — `dictation.cancel` from the keyboard, 2026-10-20, runs `20261020-215152-0f15824` and, with the session lock and value-free settings check, `20261020-223327-b2ecc45`:
 
 ```bash
 H=.claude/skills/verify-dictus-android/helpers

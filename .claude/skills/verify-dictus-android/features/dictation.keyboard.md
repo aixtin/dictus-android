@@ -28,9 +28,9 @@ In any app, the Dictus keyboard's blue mic pill records the voice on the phone, 
 
 ## Driving it with Argent
 
-Proven on the Pixel on 2026-10-20 (run `20261020-215152-0f15824`): `dictation.start` + `dictation.cancel`, end to end.
+Proven on the Pixel on 2026-10-20 (runs `20261020-215152-0f15824` and `20261020-223327-b2ecc45`): `dictation.start` + `dictation.cancel`, end to end.
 
-Preconditions: lock held, Launch and Doctor OK (Dictus is the default IME, `RECORD_AUDIO` granted, at least one model in `files/models`); Argent device `99071FFAZ00EBN`.
+Preconditions: this session holds the lock, Launch and Doctor OK (Dictus is the default IME, `RECORD_AUDIO` granted, at least one model in `files/models`); Argent device `99071FFAZ00EBN`.
 
 - **Open a scratch field.** `mcp__argent__launch-app {bundleId:"dev.dettmer.simplenotes"}`, tap `Nouvelle note` then `Note textuelle` (`run-sequence` with `delayMs: 1000`). → the tree lists `TextField "Titre"` with no value and the keyboard's nodes: `Keyboard language DE`, `Microphone`, the keys (`helpers/evidence.sh 01-dictation.cancel-keyboard-before`).
 - **Mark the log.** `M=$(helpers/log.sh mark)`.
