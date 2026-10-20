@@ -171,8 +171,8 @@ Every iOS ID (the 176 of the iOS « All IDs » table, same order: 18 features, 1
 | `onboarding.language` | Gratuit | absent — pas d'étape langue/disposition | non |
 | `onboarding.keyboard-setup` | N/A | Spécifique iOS (N/A) — équivalent Android : onboarding.ime-setup | non |
 | `onboarding.apple-intelligence` | N/A | Spécifique iOS (N/A) | non |
-| `onboarding.pro-scenes` | Pro sur iOS — absent | absent | non |
-| `onboarding.smart-mode-pick` | Pro sur iOS — absent | absent | non |
+| `onboarding.pro-scenes` | Gratuit | absent | non |
+| `onboarding.smart-mode-pick` | Gratuit | absent | non |
 | `onboarding.model-download` | Gratuit | présent | non |
 | `onboarding.microphone` | Gratuit | présent | non |
 | `onboarding.first-dictation` | Gratuit | présent | non |
@@ -194,11 +194,11 @@ Every iOS ID (the 176 of the iOS « All IDs » table, same order: 18 features, 1
 | `app.onboarding.language` | Gratuit | absent | non |
 | `app.onboarding.keyboard-setup` | N/A | Spécifique iOS (N/A) — équivalent : app.onboarding.ime-setup | non |
 | `app.onboarding.apple-intelligence` | N/A | Spécifique iOS (N/A) | non |
-| `app.onboarding.smart-modes-scene` | Pro sur iOS — absent | absent | non |
-| `app.onboarding.smart-mode-pick` | Pro sur iOS — absent | absent | non |
-| `app.onboarding.voice-notes-scene` | Pro sur iOS — absent | absent | non |
-| `app.onboarding.vocabulary-scene` | Pro sur iOS — absent | absent | non |
-| `app.onboarding.history-scene` | Pro sur iOS — absent | absent | non |
+| `app.onboarding.smart-modes-scene` | Gratuit | absent | non |
+| `app.onboarding.smart-mode-pick` | Gratuit | absent | non |
+| `app.onboarding.voice-notes-scene` | Gratuit | absent | non |
+| `app.onboarding.vocabulary-scene` | Gratuit | absent | non |
+| `app.onboarding.history-scene` | Gratuit | absent | non |
 | `app.onboarding.model-preparation` | Gratuit | présent | non |
 | `app.onboarding.microphone` | Gratuit | présent | non |
 | `app.onboarding.first-dictation` | Gratuit | présent | non |
@@ -264,7 +264,7 @@ Every iOS ID (the 176 of the iOS « All IDs » table, same order: 18 features, 1
 
 **Décompte** (198 IDs : 176 iOS + 22 Spécifique Android) : présent **59**, partiel **13**, absent **75**, Spécifique iOS (N/A) **29**, Spécifique Android **22**.
 
-Sur les 147 IDs iOS applicables à Android : 59 présents, 13 partiels, 75 absents. 62 de ces absents sont des fonctions Pro d'iOS (Smart Modes, historique, vocabulaire, notes vocales, abonnement, avec leurs écrans) ; les 13 autres sont gratuits sur iOS.
+Sur les 147 IDs iOS applicables à Android : 59 présents, 13 partiels, 75 absents. 55 de ces absents sont des fonctions Pro d'iOS (Smart Modes, historique, vocabulaire, notes vocales, abonnement, avec leurs écrans) ; les 20 autres sont gratuits sur iOS.
 
 ## Écarts de design avec iOS
 
