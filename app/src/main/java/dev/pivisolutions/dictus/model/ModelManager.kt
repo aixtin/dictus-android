@@ -31,6 +31,7 @@ enum class AiProvider { WHISPER, PARAKEET }
  * @param speed           Relative speed score 0.0–1.0 for the Vitesse bar.
  * @param provider        Download source and inference engine.
  * @param isDeprecated    When true, hide from new downloads but keep if installed.
+ * @param languages       Spoken languages the model transcribes (issue #133).
  */
 data class ModelInfo(
     val key: String,
@@ -43,10 +44,13 @@ data class ModelInfo(
     val speed: Float = 0f,
     val provider: AiProvider = AiProvider.WHISPER,
     val isDeprecated: Boolean = false,
-    val isEnglishOnly: Boolean = false,
     val isTransducer: Boolean = false,
     val minRamGb: Int = 0,
-)
+    val languages: ModelLanguages,
+) {
+    /** True when the model only transcribes English (derived from [languages]). */
+    val isEnglishOnly: Boolean get() = languages.coverage == LanguageCoverage.ENGLISH_ONLY
+}
 
 /**
  * Static catalog of all supported ASR models (Whisper GGML and Parakeet ONNX).
@@ -94,6 +98,7 @@ object ModelCatalog {
             description = "Rapide et leger",
             precision = 0.4f,
             speed = 1.0f,
+            languages = ModelLanguages.WHISPER_MULTILINGUAL,
         ),
         ModelInfo(
             key = "base",
@@ -104,6 +109,7 @@ object ModelCatalog {
             description = "Precis et equilibre",
             precision = 0.6f,
             speed = 0.7f,
+            languages = ModelLanguages.WHISPER_MULTILINGUAL,
         ),
         ModelInfo(
             key = "small",
@@ -114,6 +120,7 @@ object ModelCatalog {
             description = "Haute precision",
             precision = 0.9f,
             speed = 0.35f,
+            languages = ModelLanguages.WHISPER_MULTILINGUAL,
         ),
         ModelInfo(
             key = "small-q5_1",
@@ -124,6 +131,7 @@ object ModelCatalog {
             description = "Meilleur compromis",
             precision = 0.85f,
             speed = 0.55f,
+            languages = ModelLanguages.WHISPER_MULTILINGUAL,
         ),
         ModelInfo(
             key = "medium-q5_0",
@@ -134,6 +142,7 @@ object ModelCatalog {
             description = "Meilleure precision",
             precision = 0.9f,
             speed = 0.3f,
+            languages = ModelLanguages.WHISPER_MULTILINGUAL,
         ),
         // --- Parakeet models (sherpa-onnx) ---
         // Downloaded as tar.bz2 archives, stored in models/{key}/ directory on device.
@@ -143,24 +152,26 @@ object ModelCatalog {
             displayName = "Parakeet 110M",
             expectedSizeBytes = 131_628_000L,
             qualityLabel = "Rapide",
-            description = "Anglais uniquement - Rapide et precis",
+            description = "Rapide et precis",
             precision = 0.75f,
             speed = 0.85f,
             provider = AiProvider.PARAKEET,
-            isEnglishOnly = true,
+            languages = ModelLanguages.ENGLISH,
         ),
         ModelInfo(
             key = "parakeet-tdt-0.6b-v3",
             fileName = "encoder.int8.onnx",
-            displayName = "Parakeet 0.6B",
+            // "v3" is the multilingual release (v2 was English only): the name says it
+            displayName = "Parakeet 0.6B v3",
             expectedSizeBytes = 622_000_000L,
             qualityLabel = "Premium",
-            description = "25 langues - Detection automatique",
+            description = "Detection automatique de la langue",
             precision = 0.95f,
             speed = 0.40f,
             provider = AiProvider.PARAKEET,
             isTransducer = true,
             minRamGb = 8,
+            languages = ModelLanguages.PARAKEET_V3,
         ),
     )
 

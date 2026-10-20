@@ -152,7 +152,20 @@
     <string name="fake_settings_dictus_subtitle">QWERTY (English)</string>
 
     <!-- ModelCard — Parakeet provider -->
-    <string name="model_parakeet_language_warning">English only</string>
+    <!-- Model languages (issue #133) -->
+    <string name="model_languages_english_only">English only</string>
+    <plurals name="model_languages_european">
+        <item quantity="one">%1$d European language</item>
+        <item quantity="other">%1$d European languages</item>
+    </plurals>
+    <plurals name="model_languages_multilingual">
+        <item quantity="one">~%1$d language</item>
+        <item quantity="other">~%1$d languages</item>
+    </plurals>
+    <string name="model_languages_show">Show supported languages</string>
+    <string name="model_languages_main">Main languages</string>
+    <string name="model_languages_others">Other languages</string>
+    <string name="model_languages_quality_note">Quality varies a lot from one language to another. It is best on the main languages.</string>
     <string name="parakeet_lang_dialog_title">English Only Model</string>
     <string name="parakeet_lang_dialog_message">This model only supports English. Continue?</string>
     <string name="ram_warning_dialog_title">Insufficient RAM</string>
