@@ -1,32 +1,41 @@
 #!/usr/bin/env bash
-# Pixel lock shared by every thread that installs or drives on the Pixel.
-#   lock.sh acquire <owner-tag>   wait (retry every 60 s, up to 30 min) then take the lock
-#   lock.sh release <owner-tag>   release it, only if <owner-tag> owns it
-#   lock.sh status                print the owner, or "free"
+# Pixel lock shared by every thread that installs or drives on the Pixel (other skills and agents
+# use the same directory: /home/pierre/Dev/dictus-proofs/.pixel-lock).
+#   lock.sh acquire [label]   wait (retry every 60 s, up to 30 min) until the lock is free, then take
+#                             it with a token unique to this session (pid + epoch ms + random)
+#   lock.sh release           release it, only if its token is this session's token
+#   lock.sh status            print the owner and whether it is this session
+# The token lives in the session directory (env.sh: DICTUS_SESSION_TOKEN); the lock's owner file
+# holds token=, session=, label=, since=. The label is informative only: it never grants the lock.
 set -u
 source "$(dirname "$0")/env.sh"
-cmd="${1:-status}"; tag="${2:-verify-map}"
-mkdir -p "$DICTUS_PROOFS"
+cmd="${1:-status}"; label="${2:-verify-dictus-android}"
+mkdir -p "$DICTUS_PROOFS" "$DICTUS_SESSION_DIR"
 case "$cmd" in
   acquire)
-    if [ "$(cut -d' ' -f1 "$DICTUS_LOCK/owner" 2>/dev/null)" = "$tag" ]; then
-      echo "LOCK ACQUIRED (already held by $tag since $(cut -d' ' -f2 "$DICTUS_LOCK/owner"))"; exit 0
-    fi
+    if lock_is_mine; then echo "LOCK ACQUIRED (already held by this session, token $(session_token))"; exit 0; fi
+    token="$$-$(date +%s%3N)-$(od -An -N4 -tx4 /dev/urandom | tr -d ' ')"
     for i in $(seq 0 30); do
       if mkdir "$DICTUS_LOCK" 2>/dev/null; then
-        echo "$tag $(date -Is)" > "$DICTUS_LOCK/owner"
-        echo "LOCK ACQUIRED $(cat "$DICTUS_LOCK/owner")"; exit 0
+        printf 'token=%s\nsession=%s\nlabel=%s\nsince=%s\n' "$token" "$DICTUS_SESSION" "$label" "$(date -Is)" > "$DICTUS_LOCK/owner"
+        echo "$token" > "$DICTUS_SESSION_TOKEN"
+        echo "LOCK ACQUIRED token=$token session=$DICTUS_SESSION"; exit 0
       fi
-      echo "lock held by: $(cat "$DICTUS_LOCK/owner" 2>/dev/null || echo '?') (attempt $i/30, retry in 60 s)"
+      echo "lock held by: $(lock_owner_line) (attempt $i/30, retry in 60 s)"
       [ "$i" -lt 30 ] && sleep 60
     done
     echo "LOCK TIMEOUT after 30 min"; exit 1 ;;
   release)
-    if [ ! -d "$DICTUS_LOCK" ]; then echo "LOCK already free"; exit 0; fi
-    owner="$(cut -d' ' -f1 "$DICTUS_LOCK/owner" 2>/dev/null || true)"
-    if [ "$owner" != "$tag" ]; then echo "LOCK owned by '$owner', not '$tag': left in place"; exit 1; fi
-    rm "$DICTUS_LOCK/owner" && rmdir "$DICTUS_LOCK" && echo "LOCK RELEASED" ;;
+    if [ ! -d "$DICTUS_LOCK" ]; then rm -f "$DICTUS_SESSION_TOKEN"; echo "LOCK already free"; exit 0; fi
+    if ! lock_is_mine; then
+      echo "LOCK REFUSED: held by [$(lock_owner_line)], this session is $DICTUS_SESSION with token '$(session_token)': left in place"
+      exit 1
+    fi
+    token="$(lock_token)"
+    rm "$DICTUS_LOCK/owner" && rmdir "$DICTUS_LOCK" && rm -f "$DICTUS_SESSION_TOKEN" && echo "LOCK RELEASED token=$token" ;;
   status)
-    if [ -d "$DICTUS_LOCK" ]; then echo "held: $(cat "$DICTUS_LOCK/owner" 2>/dev/null)"; else echo "free"; fi ;;
-  *) echo "usage: lock.sh acquire|release|status [owner-tag]"; exit 2 ;;
+    if [ ! -d "$DICTUS_LOCK" ]; then echo "free"
+    elif lock_is_mine; then echo "held by this session: $(lock_owner_line)"
+    else echo "held by another session: $(lock_owner_line)"; fi ;;
+  *) echo "usage: lock.sh acquire [label] | release | status"; exit 2 ;;
 esac
