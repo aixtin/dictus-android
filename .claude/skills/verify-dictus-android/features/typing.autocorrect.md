@@ -32,12 +32,12 @@ Preconditions: Launch and Doctor OK, a scratch note focused, keyboard language F
 
 - **Type through the keys.** Tap the letter keys `b o n j o u r` by coordinate (AZERTY, from the `kbd.keys` capture); `mcp__argent__keyboard` would bypass the Dictus keys and prove nothing. → the bar proposes completions (`evidence.sh 01-typing`).
 - **Misspell, then space.** Type `b o n j o r u`, tap space. → the field reads `bonjour ` in the tree (`evidence.sh 02-after-space`).
-- **Undo the correction.** Tap ⌫ once. → the field reads `bonjoru` again.
+- **Undo the correction (test device only, see Gotchas).** Tap ⌫ once. → the field reads `bonjoru` again.
 - **Proof.** The field's value in `mcp__argent__describe` before and after space, and after ⌫. Autocorrect decisions are not logged with text (privacy): the field value is the proof.
 
 ## Gotchas
 
 - `mcp__argent__keyboard` types through adb (`input text`), not through the Dictus keys: it never exercises suggestions or autocorrect.
-- A word learned earlier (`typing.learned-words`) is no longer corrected; a previous run's ⌫ undo teaches the misspelling. Use a different misspelling each run and do not reuse Pierre's notes.
+- A word learned earlier (`typing.learned-words`) is no longer corrected, and the ⌫ undo step **teaches the misspelling permanently** (no reset exists): on Pierre's Pixel, stop at the correction on space and skip the ⌫ step; run the undo only on a test device.
 - The bar is empty (hidden) when there is nothing to suggest; with « Suggestions » off it never appears, but the undo chip after a dictation still does.
 - Search, e-mail, URL and password fields hide the bar on purpose (`typing.private-fields`).

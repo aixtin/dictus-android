@@ -6,7 +6,7 @@ Each feature file has the same four sections: **Sub-features** (each with its st
 
 ## Baseline preconditions
 
-- Pierre's Pixel 4 (`99071FFAZ00EBN`, LineageOS, French), unlocked, on USB; the `.pixel-lock` taken (`helpers/lock.sh acquire <tag>`).
+- Pierre's Pixel 4 (`99071FFAZ00EBN`, LineageOS, French), unlocked, on USB; the `.pixel-lock` taken by this session (`helpers/lock.sh acquire`: one token per session, see `../SKILL.md` → Launch).
 - `launch.sh` printed `READY`, `doctor.sh` printed `DOCTOR OK`: debug build of the current branch installed with `adb install -r` (data kept), Dictus is the default IME, `RECORD_AUDIO` granted, onboarding completed, at least one model downloaded (Small Q5 at the time of writing).
 - Pierre's data stays as it is: his notes (including the « bonjour » ones), his active model, his settings (transcription language `Automatique`). A journey types only into a scratch note it creates and deletes.
 - What a journey cannot reach without wiping data (onboarding, a download in progress) is reported as not driven, with the precondition; the data is never cleared to reach it.
@@ -46,8 +46,8 @@ Implementation details stay out of the map: only user paths, stable handles, req
 | [`dictation.keyboard`](dictation.keyboard.md) | Dictation from the keyboard | Gratuit | présent | Yes — start + cancel proven on the Pixel (2026-10-20); ✓ records the room |
 | [`dictation.in-app`](dictation.in-app.md) | Dictation inside the app | Gratuit | présent | Screens yes; opening the recorder records at once (and `Retour` does not stop it) |
 | [`models.transcription`](models.transcription.md) | Transcription models | Gratuit | présent | Browsing yes; no download/delete on Pierre's phone |
-| [`typing.autocorrect`](typing.autocorrect.md) | Autocorrect and suggestions | Gratuit | présent | Yes, keys by coordinate in a scratch note |
-| [`typing.learned-words`](typing.learned-words.md) | Learned words | Gratuit | partiel | Yes, but learning is permanent (no reset) |
+| [`typing.autocorrect`](typing.autocorrect.md) | Autocorrect and suggestions | Gratuit | présent | Yes, keys by coordinate in a scratch note; the ⌫ undo step on a test device only |
+| [`typing.learned-words`](typing.learned-words.md) | Learned words | Gratuit | partiel | No on Pierre's Pixel (learning is permanent, no reset): test device only |
 | [`keyboard.languages`](keyboard.languages.md) | Keyboard languages and layouts | Gratuit | partiel | Yes (cycle a full turn) |
 | [`keyboard.emoji`](keyboard.emoji.md) | Emoji | Gratuit | partiel | Yes |
 | [`feedback.sounds-haptics`](feedback.sounds-haptics.md) | Sounds and haptics | Gratuit | présent | Settings only; no sound or vibration captured |
