@@ -160,6 +160,7 @@ fun ModelsScreen(
                         },
                         onRetry = { viewModel.retryDownload(modelState.info.key) },
                         onSelect = { viewModel.requestSetActiveModel(modelState.info.key) },
+                        requiredRamGb = modelState.requiredRamGb,
                     )
                     }
                 }
@@ -182,6 +183,7 @@ fun ModelsScreen(
                         onDownload = { viewModel.downloadModel(modelState.info.key) },
                         onDelete = {},
                         onRetry = { viewModel.retryDownload(modelState.info.key) },
+                        requiredRamGb = modelState.requiredRamGb,
                     )
                     }
                 }

@@ -169,6 +169,7 @@
     <string name="model_download_progress">T\u00e9l\u00e9chargement \u2014 %1$d%%</string>
     <string name="model_extracting">Extraction\u2026</string>
     <string name="model_download_error">\u00c9chec du t\u00e9l\u00e9chargement.</string>
+    <string name="model_requires_ram">N\u00e9cessite %1$d Go de RAM ou plus</string>
     <string name="model_precision">Pr\u00e9cision</string>
     <string name="model_speed">Vitesse</string>
     <string name="model_delete_cd">Supprimer</string>
