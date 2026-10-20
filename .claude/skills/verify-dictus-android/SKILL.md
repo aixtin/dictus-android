@@ -15,21 +15,25 @@ Read first: `features/README.md` maps every user feature to its recipe, `feature
 
 Take the Pixel lock first. Other threads install APKs on the same phone; the lock is the only thing that keeps two of them from installing over each other.
 
+**The lock belongs to a session, not to a name.** `lock.sh acquire` enters only when `/home/pierre/Dev/dictus-proofs/.pixel-lock` does not exist (atomic `mkdir`), and writes a token unique to this session (pid + epoch ms + random) both in the lock's `owner` file and in the session directory `…/verify-dictus-android/sessions/<session>/token`. The session is this checkout (its basename plus a hash of its full path); two agents sharing one checkout must each export a distinct `DICTUS_VERIFY_SESSION`. `launch.sh` and `doctor.sh` refuse a lock whose token is not this session's; `lock.sh release` (and `cleanup.sh`) release only that token's lock and print the owner otherwise. The optional label after `acquire` is informative only.
+
 ```bash
 H=.claude/skills/verify-dictus-android/helpers
-$H/lock.sh acquire verify-map     # waits (retry every 60 s, max 30 min) while another thread holds it
+$H/lock.sh acquire                # waits (retry every 60 s, max 30 min) while another session holds it
+$H/lock.sh status                 # free / held by this session / held by another session: token=… session=…
 $H/launch.sh                      # build + install -r + IME + launch
 $H/launch.sh --no-build           # same, reusing app/build/outputs/apk/debug/app-debug.apk
 ```
 
 `launch.sh`, in order:
 
-1. Refuses to run without the lock, without the phone (`adb devices`), or if the phone is locked (`dumpsys window`: `isKeyguardShowing=true` or `mDreamingLockscreen=true`). **Never unlock the phone**: release the lock, stop, report.
-2. Creates the run directory `/home/pierre/Dev/dictus-proofs/verify-dictus-android/<YYYYMMDD-HHMMSS>-<sha>/` and points this worktree's session file at it (`…/sessions/<worktree-name>`), so two worktrees never resolve each other's run.
+1. Refuses to run without **this session's** lock, without the phone (`adb devices`), or if the phone is locked (`dumpsys window`: `isKeyguardShowing=true` or `mDreamingLockscreen=true`). **Never unlock the phone**: run `cleanup.sh` (it releases the lock even without a run), stop, report.
+2. Creates the run directory `/home/pierre/Dev/dictus-proofs/verify-dictus-android/<YYYYMMDD-HHMMSS>-<sha>/`, writes the session token in its `run.env` and points the session's `run` file at it (`<token> <run-dir>`): helpers resolve only a run carrying the current token, so they never touch another session's run or an older one.
 3. `git submodule update --init` then `./gradlew assembleDebug` (log in `build.log`; ~1 min warm, longer cold: whisper.cpp is compiled by CMake).
 4. `adb install -r app-debug.apk` — **`-r` keeps the data. Never `adb uninstall`, never `pm clear`.** The debug keystore is shared with hermesbot, so the install updates in place.
-5. Makes `dev.pivisolutions.dictus/.ime.DictusImeService` the default IME (`ime enable` + `ime set`) only if it is not already, and writes the previous IME to `run.env` for Cleanup.
-6. `am start -W -n dev.pivisolutions.dictus/.MainActivity`.
+5. Saves the settings snapshot as `prefs-before.digest`: key names and the sha256 of each value, never a value; volatile keys (last transcription, timestamps) are skipped.
+6. Makes `dev.pivisolutions.dictus/.ime.DictusImeService` the default IME (`ime enable` + `ime set`) only if it is not already, and writes the previous IME to `run.env` for Cleanup.
+7. `am start -W -n dev.pivisolutions.dictus/.MainActivity`.
 
 **Ready means** the process is alive (`pidof`), `MainActivity` is the resumed activity, and the pid is unchanged 3 s later (an app that crashes on start fails here). Last line on success, the only one to rely on:
 
@@ -49,7 +53,8 @@ Then confirm with Argent that the first screen is usable: `mcp__argent__describe
 Read-only: installs, taps and changes nothing. One `OK` / `WARN` / `FAIL` line per check, then `DOCTOR OK` or `DOCTOR FAIL <n>` (exit 1):
 
 - `adb` and `argent` present; Pixel connected; **unlocked**; locale `fr-FR` (the labels below are French).
-- The `.pixel-lock` is held (and by whom).
+- The `.pixel-lock` is held **by this session** (FAIL if free or held by another session's token).
+- `settings:` the harmless ones only (`active_model`, `transcription_language`, `keyboard_language`, `keyboard_layout`, `keyboard_mode`, `theme`): what the run must leave as it found them. Never the last transcription.
 - Dictus installed (`versionName`, `lastUpdateTime`) and **the installed APK is this run's build** (sha256 of the on-device `base.apk` against `apk_sha` in `run.env`; reading 170 MB takes ~20 s).
 - Dictus is the default IME; `RECORD_AUDIO` granted; the process runs; `files/dictus.log` readable with `run-as` (debug build only); which models are in `files/models` (none = every dictation ends on « Aucun modèle vocal »).
 - No other UI driver: no long-lived `uiautomator`/Appium/Maestro on the phone, no `mobile-mcp`/Maestro/Appium on the host.
@@ -89,7 +94,7 @@ CLI equivalent: `argent run describe --udid 99071FFAZ00EBN`.
 
 **Text fields to type into.** The notes app on the Pixel is Simple Notes (`dev.dettmer.simplenotes`). Create a scratch note (`Nouvelle note` → `Note textuelle`), type in `Titre`, never open one of Pierre's notes (keep the « bonjour » notes untouched). Delete it at the end: `Plus d'options` → `Supprimer` moves it to the bin; then `Paramètres` → `Corbeille` → `Supprimer la note définitivement` on **your** note only (other threads' test notes may be there too) → `Supprimer définitivement`.
 
-**Logs that prove an action** (Timber, logcat of the Dictus process; `helpers/log.sh`):
+**Logs that prove an action** (Timber, logcat lines of the Dictus app selected by its uid, so they survive a restart; `helpers/log.sh`):
 
 | Action | Line (regex) |
 | --- | --- |
@@ -101,7 +106,7 @@ CLI equivalent: `argent run describe --udid 99071FFAZ00EBN`.
 
 ```bash
 H=.claude/skills/verify-dictus-android/helpers
-M=$($H/log.sh mark)                          # device time, to assert only on what follows
+M=$($H/log.sh mark)                          # device epoch with ms (e.g. 1792525951.295): assert only on what follows
 $H/log.sh wait 'Recording cancelled' 15 "$M" # prints the line, exit 1 after 15 s
 $H/log.sh since "$M"                         # everything Dictus logged since the mark
 ```
@@ -110,7 +115,7 @@ $H/log.sh since "$M"                         # everything Dictus logged since th
 
 ```bash
 H=.claude/skills/verify-dictus-android/helpers
-$H/lock.sh acquire verify-map && $H/launch.sh && $H/doctor.sh
+$H/lock.sh acquire && $H/launch.sh && $H/doctor.sh
 # Argent: launch-app dev.dettmer.simplenotes → tap « Nouvelle note » → « Note textuelle » (Titre focused, keyboard up)
 $H/evidence.sh 01-dictation.cancel-keyboard-before
 M=$($H/log.sh mark)
@@ -121,7 +126,7 @@ $H/evidence.sh 02-dictation.cancel-recording "$M"
 $H/log.sh wait 'Recording cancelled, samples discarded' 10 "$M"
 $H/evidence.sh 03-dictation.cancel-after "$M"
 # Argent: describe → TextField "Titre" has no value; then delete the scratch note
-$H/cleanup.sh "" verify-map     # then mcp__argent__stop-all-simulator-servers {devices:["99071FFAZ00EBN"]}
+$H/cleanup.sh                   # then mcp__argent__stop-all-simulator-servers {devices:["99071FFAZ00EBN"]}
 ```
 
 Every other feature's recipe is in `features/<id>.md`, under "Driving it with Argent".
@@ -135,7 +140,7 @@ Rules that hold for every feature:
 - **Never tap the nav bar's keyboard button** (`Changer le mode de saisie`, bottom right while a keyboard is up): a tap switches straight to the next keyboard (AOSP) and changes Pierre's default IME. Long-press it (`gesture-custom` Down, 900 ms, Up) to get the picker; if it happened, `adb -s 99071FFAZ00EBN shell ime set dev.pivisolutions.dictus/.ime.DictusImeService`.
 - **« Nouvelle dictée » starts recording at once**, and `Retour` leaves the screen without stopping it (the service keeps the mic; seen 2026-10-20). Stop it with `Arrêter` (that transcribes the room and writes « Dernière transcription ») or, to discard, Quick Settings (swipe down twice) → `1 appli est active` → Dictus `Arrêter`, which stops the app process.
 - Notifications are **denied** for Dictus on this Pixel: the recording notification never shows; the running service appears only as « 1 appli est active » in Quick Settings.
-- Pierre's keyboard language is **DE** (Doctor's snapshot): cycle a full turn (4 taps) when you change it for a capture.
+- Before changing the keyboard language, read it: Doctor's `settings:` line (`keyboard_language=…`) or Réglages → `Langue du clavier / …`. On 2026-10-20 it was DE. Cycle a full turn (4 taps) when you change it for a capture, and check Doctor's line again afterwards.
 
 ## Evidence
 
@@ -155,7 +160,7 @@ Everything for a run lands in `/home/pierre/Dev/dictus-proofs/verify-dictus-andr
 | `build.log`, `install.log`, `am-start.log`, `00-launch.png` | `launch.sh` | build, install, first screen |
 | `<name>.png` | `evidence.sh` | `adb exec-out screencap -p`, 1080×2280 |
 | `<name>.log` | `evidence.sh` (with a mark) | Dictus logcat lines since the mark |
-| `prefs-before.pb` / `prefs-after.pb` | `launch.sh` / `cleanup.sh` | the app's DataStore before and after, to prove settings were put back |
+| `prefs-before.digest` / `prefs-after.digest` | `launch.sh` / `cleanup.sh` | per setting: key name + sha256 of its value (no value, volatile keys skipped), to prove settings were put back |
 | `dictus.full.log` | `cleanup.sh` | the app's own `files/dictus.log` (privacy-safe: lengths, never text) |
 
 Proof standards: drive the real user path (keys, buttons, the keyboard over a real app), not an internal setter or `am broadcast`; capture the screen **before** and **after** the action and the log line that proves it happened; check the side effect too (for a cancel: the field is unchanged; for an insert: the field holds the text). A screenshot without its log line is a picture, not a proof. Argent's `screenshot` can lag one frame: use `evidence.sh` (adb screencap) for the file you keep. Only screen-map captures (`screen.sh`, resized to 1140 px high and quantized with python3 PIL, < 300 KB) go in the repository, under `screens/`.
@@ -163,27 +168,27 @@ Proof standards: drive the real user path (keys, buttons, the keyboard over a re
 ## Cleanup
 
 ```bash
-.claude/skills/verify-dictus-android/helpers/cleanup.sh                     # this worktree's run, lock tag verify-map
-.claude/skills/verify-dictus-android/helpers/cleanup.sh <run-dir> <lock-tag>
+.claude/skills/verify-dictus-android/helpers/cleanup.sh             # this session's run (if any), then its lock
+.claude/skills/verify-dictus-android/helpers/cleanup.sh <run-dir>   # a run of this session (refused if its token is not ours)
 ```
 
 Then stop Argent's services **for the Pixel only**: `mcp__argent__stop-all-simulator-servers { devices: ["99071FFAZ00EBN"] }` (CLI: `argent run stop-all-simulator-servers --devices 99071FFAZ00EBN`). Never call it without `devices`: one tool-server serves every agent on this machine.
 
-`cleanup.sh` copies `files/dictus.log` and the DataStore (`prefs-after.pb`) into the run, prints `PREFS same` or the keys that differ from `prefs-before.pb`, restores the IME that Launch replaced (if it replaced one), releases the lock **only if your tag owns it**, and ends with `CLEANUP OK run=… files=<n>`. It never uninstalls, never clears data, never kills a process by name, never deletes anything under `dictus-proofs/`. Delete your scratch note yourself before Cleanup. Run Cleanup after a failed run too, then check the evidence survived: `ls -la <run-dir>`.
+With a run of this session, `cleanup.sh` copies `files/dictus.log` into it, writes `prefs-after.digest` and prints only `PREFS same` or `PREFS differ: <key names>` (never a value), and restores the IME that Launch replaced (if it replaced one). Then, run or no run (e.g. Launch refused because the phone was locked), it releases the lock **only if this session's token holds it**, ends with `CLEANUP OK run=…` and a `NEXT:` line reminding to stop Argent for the Pixel. It never uninstalls, never clears data, never kills a process by name, never deletes anything under `dictus-proofs/`. Delete your scratch note yourself before Cleanup. Run Cleanup after a failed run too, then check the evidence survived: `ls -la <run-dir>`.
 
 ## Helpers
 
-All executable, run from the repository root; all read `helpers/env.sh` (overrides: `DICTUS_SERIAL`, `DICTUS_PROOFS`, `DICTUS_EVIDENCE_ROOT`, `DICTUS_VERIFY_RUN`).
+All executable, run from the repository root; all read `helpers/env.sh` (overrides: `DICTUS_SERIAL`, `DICTUS_PROOFS`, `DICTUS_EVIDENCE_ROOT`, `DICTUS_VERIFY_RUN`, `DICTUS_VERIFY_SESSION`).
 
 | Script | Invocation | Ends with |
 | --- | --- | --- |
-| `helpers/lock.sh` | `lock.sh acquire\|release\|status [tag]` | `LOCK ACQUIRED …` / `LOCK RELEASED` / `free` |
+| `helpers/lock.sh` | `lock.sh acquire [label]` · `lock.sh release` · `lock.sh status` | `LOCK ACQUIRED token=… session=…` / `LOCK RELEASED token=…` / `LOCK REFUSED: held by […]` / `free` |
 | `helpers/launch.sh` | `launch.sh [--no-build]` | `READY serial=… run=… pid=… version=… apk_sha=…` |
 | `helpers/doctor.sh` | `doctor.sh [run-dir]` | `DOCTOR OK` / `DOCTOR FAIL <n>` |
-| `helpers/log.sh` | `log.sh mark` · `log.sh wait '<regex>' [secs] [mark]` · `log.sh since <mark>` | `found: <line>` / `error: …` |
+| `helpers/log.sh` | `log.sh mark` · `log.sh wait '<regex>' [secs] [mark]` · `log.sh since <mark>` | `found: <line>` / `error: Dictus is running but logged no line …` / `error: no Dictus process running …` |
 | `helpers/evidence.sh` | `evidence.sh <name> [mark] [run-dir]` | `evidence <name>: <path>.png` |
 | `helpers/screen.sh` | `screen.sh <screen-id>` | `screen <id>: <path> (<n> KB)` |
-| `helpers/cleanup.sh` | `cleanup.sh [run-dir] [lock-tag]` | `CLEANUP OK run=… files=<n>` |
-| `helpers/env.sh` | sourced, not run | `adbs`, `resolve_run`, `report` |
+| `helpers/cleanup.sh` | `cleanup.sh [run-dir]` | `PREFS same` / `PREFS differ: <keys>`, `CLEANUP OK run=…`, `NEXT: stop Argent…` |
+| `helpers/env.sh` | sourced, not run | `adbs`, `pixel_locked`, `device_mark`, `lock_is_mine`, `session_token`, `resolve_run`, `report`, `prefs_tool digest\|show`, `pull_prefs` |
 
 Keep the map honest as the app changes with `/maintain-verification-skill`.
