@@ -67,7 +67,7 @@ done
 [ -n "$pid" ] || { echo "error: Dictus not resumed after 20 s (see $run/am-start.log)"; exit 1; }
 
 version="$(adbs shell dumpsys package "$DICTUS_PKG" | grep -m1 versionName | sed 's/.*=//' | tr -d '\r')"
-{ echo "SERIAL=$DICTUS_SERIAL"; echo "PID=$pid"; echo "UID=$(adbs shell pm list packages -U "$DICTUS_PKG" | sed -n 's/.*uid://p' | tr -d '\r' | head -1)"; echo "APK_SHA=$apk_sha"; echo "VERSION=$version"; } >> "$run/run.env"
+{ echo "SERIAL=$DICTUS_SERIAL"; echo "PID=$pid"; echo "APP_UID=$(adbs shell pm list packages -U "$DICTUS_PKG" | sed -n 's/.*uid://p' | tr -d '\r' | head -1)"; echo "APK_SHA=$apk_sha"; echo "VERSION=$version"; } >> "$run/run.env"
 adbs exec-out screencap -p > "$run/00-launch.png"
 report "$run" "READY pid=$pid version=$version"
 echo "READY serial=$DICTUS_SERIAL run=$run pid=$pid version=$version apk_sha=$apk_sha"

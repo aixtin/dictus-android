@@ -27,8 +27,7 @@ if adbs shell pm path "$DICTUS_PKG" >/dev/null 2>&1; then
 else fail "Dictus not installed"; fi
 run="$(resolve_run "${1:-}" || true)"
 if [ -n "$run" ] && [ -f "$run/run.env" ]; then
-  # shellcheck disable=SC1091
-  source "$run/run.env"
+  APK_SHA="$(sed -n 's/^APK_SHA=//p' "$run/run.env")"   # read, never sourced
   dev_sha="$(adbs shell 'cat $(pm path '"$DICTUS_PKG"' | head -1 | cut -d: -f2)' | sha256sum | cut -c1-16)"
   [ "$dev_sha" = "${APK_SHA:-}" ] && ok "installed APK = this run's build ($dev_sha)" || fail "installed APK $dev_sha != this run's build ${APK_SHA:-?}"
 else warn "no run of this session: build identity not checked"; fi

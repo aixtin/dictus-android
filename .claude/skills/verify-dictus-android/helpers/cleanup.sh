@@ -28,7 +28,7 @@ if [ -n "$run" ]; then
   fi
   report "$run" "CLEANUP OK"
 else
-  echo "no run of this session: run steps skipped, lock still released"
+  echo "no run of this session: run steps skipped; releasing this session's lock if it holds one"
 fi
 "$(dirname "$0")/lock.sh" release || true
 echo "CLEANUP OK run=${run:-none}${run:+ files=$(find "$run" -maxdepth 1 -type f | wc -l)}"
