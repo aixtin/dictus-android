@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
@@ -81,6 +82,8 @@ import kotlin.math.roundToInt
  * @param onDelete       Callback to request deletion (shows confirmation sheet).
  * @param onRetry        Callback to retry after a download failure.
  * @param onSelect       Callback when a downloaded, non-active card is tapped to select it.
+ * @param requiredRamGb  Non-null when the device lacks the RAM for this model: the card is
+ *                       greyed out, cannot be downloaded or selected, and shows the reason.
  */
 @Composable
 fun ModelCard(
@@ -95,7 +98,11 @@ fun ModelCard(
     onDelete: () -> Unit,
     onRetry: () -> Unit,
     onSelect: () -> Unit = {},
+    requiredRamGb: Int? = null,
 ) {
+    // Issue #121: recess an unavailable card rather than hiding it (same 0.55 as iOS #369)
+    val isUnavailable = requiredRamGb != null
+
     // Press animation state
     var isPressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
@@ -166,6 +173,7 @@ fun ModelCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .offset { IntOffset(animatedOffsetX.roundToInt(), 0) }
+                .alpha(if (isUnavailable) 0.55f else 1f)
                 .onSizeChanged { cardHeightPx = it.height.toFloat() }
                 .clip(RoundedCornerShape(16.dp))
                 .background(MaterialTheme.colorScheme.surface)
@@ -192,7 +200,7 @@ fun ModelCard(
                         )
                     }
                 }
-                .pointerInput(isDownloaded, isActive) {
+                .pointerInput(isDownloaded, isActive, isUnavailable) {
                     detectTapGestures(
                         onPress = {
                             isPressed = true
@@ -203,7 +211,7 @@ fun ModelCard(
                             // Reset swipe if open
                             if (offsetX < 0f) {
                                 offsetX = 0f
-                            } else if (isDownloaded && !isActive) {
+                            } else if (isDownloaded && !isActive && !isUnavailable) {
                                 onSelect()
                             }
                         },
@@ -297,6 +305,16 @@ fun ModelCard(
                     )
                 }
 
+                // Why the card is greyed out: names the phone's limit, not an app error
+                if (requiredRamGb != null) {
+                    Text(
+                        text = stringResource(R.string.model_requires_ram, requiredRamGb),
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+
                 // Precision and Vitesse side by side on the same row (matches iOS)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -387,6 +405,9 @@ fun ModelCard(
                                 )
                             }
                         }
+                    }
+                    isUnavailable -> {
+                        // No download button: the device cannot run this model
                     }
                     isDownloaded -> {
                         // No delete button — swipe left to reveal delete action

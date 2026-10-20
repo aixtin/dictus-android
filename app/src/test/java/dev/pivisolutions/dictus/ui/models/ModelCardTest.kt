@@ -43,4 +43,28 @@ class ModelCardTest {
         composeTestRule.onAllNodesWithTag("model_precision_segment").assertCountEquals(5)
         composeTestRule.onAllNodesWithTag("model_speed_segment").assertCountEquals(5)
     }
+
+    @Test
+    fun `unavailable model card shows the RAM it needs and no download button`() {
+        val model = ModelCatalog.findByKey("parakeet-tdt-0.6b-v3")!!
+
+        composeTestRule.setContent {
+            DictusTheme {
+                ModelCard(
+                    model = model,
+                    isDownloaded = false,
+                    isActive = false,
+                    downloadProgress = null,
+                    canDelete = false,
+                    onDownload = {},
+                    onDelete = {},
+                    onRetry = {},
+                    requiredRamGb = 8,
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("Requires 8 GB of RAM or more").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Download").assertDoesNotExist()
+    }
 }
