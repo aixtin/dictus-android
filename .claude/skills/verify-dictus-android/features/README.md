@@ -43,8 +43,8 @@ Implementation details stay out of the map: only user paths, stable handles, req
 
 | ID | Feature | Tier | Statut Android | Drivable on the Pixel |
 | --- | --- | --- | --- | --- |
-| [`dictation.keyboard`](dictation.keyboard.md) | Dictation from the keyboard | Gratuit | présent | Yes: start + cancel without a transcript (proof run); ✓ records the room |
-| [`dictation.in-app`](dictation.in-app.md) | Dictation inside the app | Gratuit | présent | Screens yes; a dictation records the room |
+| [`dictation.keyboard`](dictation.keyboard.md) | Dictation from the keyboard | Gratuit | présent | Yes — start + cancel proven on the Pixel (2026-10-20); ✓ records the room |
+| [`dictation.in-app`](dictation.in-app.md) | Dictation inside the app | Gratuit | présent | Screens yes; opening the recorder records at once (and `Retour` does not stop it) |
 | [`models.transcription`](models.transcription.md) | Transcription models | Gratuit | présent | Browsing yes; no download/delete on Pierre's phone |
 | [`typing.autocorrect`](typing.autocorrect.md) | Autocorrect and suggestions | Gratuit | présent | Yes, keys by coordinate in a scratch note |
 | [`typing.learned-words`](typing.learned-words.md) | Learned words | Gratuit | partiel | Yes, but learning is permanent (no reset) |
@@ -59,7 +59,7 @@ Not in the map as files, on purpose: the iOS features absent on Android (`smart-
 
 ## All IDs
 
-Every iOS ID (the 176 of the iOS « All IDs » table, same order: 18 features, 109 sub-features, 49 screens), then the Android-only IDs. **Statut Android**: présent, partiel (with what is missing), absent, or Spécifique iOS (N/A: the iOS keyboard-to-app hand-off and Full Access, return to the host app, Apple Intelligence, Dynamic Island, App Group). Statuses come from the code of `develop` at `f2b15c5`; see screens.md for what was also seen on the Pixel.
+Every iOS ID (the 176 of the iOS « All IDs » table, same order: 18 features, 109 sub-features, 49 screens), then the Android-only IDs. **Statut Android**: présent, partiel (with what is missing), absent, or Spécifique iOS (N/A: the iOS keyboard-to-app hand-off and Full Access, return to the host app, Apple Intelligence, Dynamic Island, App Group). Statuses come from the code of `develop` at `f2b15c5`, checked on the Pixel for every screen marked « oui » in [screens.md](screens.md) (2026-10-20).
 
 | ID | Gratuit/Pro | Statut Android | Spécifique Android |
 | --- | --- | --- | --- |
@@ -155,7 +155,7 @@ Every iOS ID (the 176 of the iOS « All IDs » table, same order: 18 features, 1
 | `keyboard.transcription-language` | Gratuit | partiel — Automatique ou fixe ; pas de « Suivre la langue du clavier » | non |
 | `keyboard.open-app` | Gratuit | présent — appui long sur le code langue → Réglages | non |
 | `emoji.picker` | Gratuit | présent | non |
-| `emoji.recents` | Gratuit | présent — fourni par EmojiPickerView (code ; non vérifié sur l'appareil) | non |
+| `emoji.recents` | Gratuit | présent — « UTILISÉS RÉCEMMENT » (EmojiPickerView), vu sur le Pixel | non |
 | `emoji.search` | Gratuit | absent | non |
 | `emoji.back-to-letters` | Gratuit | présent | non |
 | `sounds.toggle` | Gratuit | présent | non |
@@ -242,7 +242,7 @@ Every iOS ID (the 176 of the iOS « All IDs » table, same order: 18 features, 1
 | [`appearance`](appearance.md) | Gratuit | présent — thème et langue de l'interface | oui |
 | `appearance.theme` | Gratuit | présent | oui |
 | `appearance.ui-language` | Gratuit | présent | oui |
-| `dictation.notification` | Gratuit | présent — notification « Dictus - Recording » + Stop | oui |
+| `dictation.notification` | Gratuit | présent — notification « Dictus - Recording » + Stop (invisible sur le Pixel : notifications refusées) | oui |
 | `dictation.switch-keyboard` | Gratuit | présent — engrenage pendant l'enregistrement → sélecteur de clavier | oui |
 | `typing.trackpad` | Gratuit | présent — appui long sur espace + glisser | oui |
 | `typing.adaptive-accent-key` | Gratuit | présent — touche ' AZERTY → é à ù î ô | oui |
@@ -276,7 +276,7 @@ Sur les 147 IDs iOS applicables à Android : 59 présents, 13 partiels, 75 absen
    - Proposition : fusionner en une barre unique selon la maquette de #139.
 2. **Dictée dans le clavier — `kbd.recording`**
    - iOS : ✕ et ✓ dans la barre du clavier, onde au-dessus des touches.
-   - Android : panneau qui remplace tout le clavier : ✕ / ✓ en haut, onde + minuteur + « En écoute… » au centre, et en bas un engrenage dont le libellé d'accessibilité est en anglais (`Settings`) et qui ouvre… le sélecteur de clavier Android, pas les réglages.
+   - Android : panneau qui remplace tout le clavier : ✕ / ✓ en haut, onde + minuteur + « En écoute… » au centre, et en bas à gauche un engrenage collé à la barre de navigation du clavier système (à côté de ⌄), dont le libellé d'accessibilité est en anglais (`Settings`) et qui ouvre… le sélecteur de clavier Android, pas les réglages.
    - Proposition : aligner la barre d'enregistrement sur #139 ; remplacer l'engrenage par une icône de changement de clavier libellée « Changer de clavier ».
 3. **Langues du clavier — `kbd.panel`**
    - iOS : appui long sur ☰ : un panneau liste Français / English / Español / Deutsch et les dispositions, fermé par ✕.
@@ -288,16 +288,16 @@ Sur les 147 IDs iOS applicables à Android : 59 présents, 13 partiels, 75 absen
    - Proposition : la même carte d'invite sur Accueil quand aucun modèle n'est téléchargé.
 5. **Cartes de modèle — `app.models`**
    - iOS : badge du moteur (`WK`, `PK`), badge « Recommandé » sur le modèle conseillé pour l'appareil, ⓘ « Langues prises en charge » sur chaque carte.
-   - Android : pas de badge Recommandé (seulement dans l'onboarding), pas de ⓘ ; seul Parakeet 110M porte « Anglais uniquement » ; ligne « Stockage utilisé » en bas.
-   - Proposition : badge « Recommandé » et fiche des langues par modèle.
+   - Android : badges moteur `WK` / `NV` présents, mais pas de badge Recommandé (seulement dans l'onboarding) ni de ⓘ ; seul Parakeet 110M porte « Anglais uniquement » ; descriptions sans accents (« Rapide et leger », « Precis et equilibre », « Haute precision », « Detection automatique ») ; ligne « Stockage utilisé » en bas.
+   - Proposition : badge « Recommandé » et fiche des langues par modèle ; accentuer les descriptions.
 6. **Réglages — `app.settings`**
    - iOS : en-têtes de section en casse normale (« Transcription », « Clavier »), langue de transcription « Suivre la langue du clavier », choix ABC / 123 en segment avec un aperçu du clavier.
-   - Android : en-têtes en capitales, dont « A PROPOS » sans accent ; tous les choix passent par des feuilles (`app.settings.picker`) ; section APPARENCE en plus ; pas d'option « Suivre la langue du clavier ».
-   - Proposition : corriger « À PROPOS » ; un segment ABC / 123 inline ; ajouter « Suivre la langue du clavier » à la langue de transcription.
+   - Android : pas de titre de page (l'écran commence directement par « TRANSCRIPTION », alors que Modèles a son grand titre) ; en-têtes en capitales, dont « A PROPOS » sans accent ; tous les choix passent par des feuilles (`app.settings.picker`) ; section APPARENCE en plus ; pas d'option « Suivre la langue du clavier ».
+   - Proposition : titre « Réglages » comme sur Modèles ; corriger « À PROPOS » ; un segment ABC / 123 inline ; ajouter « Suivre la langue du clavier » à la langue de transcription.
 7. **Sons — `app.settings.sounds`**
    - iOS : « Activer les sons » avec une note explicative, « Sons par événement » : Début, Fin, Annuler avec le son choisi affiché à droite.
-   - Android : « Son de dictée », sections « GENERAL » (sans accent) et « SONS », lignes « Son de début / de fin / d'annulation ».
-   - Proposition : « GÉNÉRAL » ; reprendre les libellés courts d'iOS (Début, Fin, Annuler) avec la valeur à droite.
+   - Android : « Son de dictée » sans note explicative, sections « GENERAL » (sans accent) et « SONS », lignes « Son de début / de fin / d'annulation » avec le son à droite (grisées tant que le son est coupé).
+   - Proposition : « GÉNÉRAL » ; libellés courts d'iOS (Début, Fin, Annuler) et une note sous l'interrupteur.
 8. **Notification d'enregistrement — `sys.notification.recording`**
    - iOS : pas de notification (Dynamic Island, Spécifique iOS).
    - Android : notification en anglais « Dictus - Recording » avec l'action « Stop », sur un appareil en français.
@@ -308,5 +308,17 @@ Sur les 147 IDs iOS applicables à Android : 59 présents, 13 partiels, 75 absen
    - Proposition : corriger l'accroche ; remplacer l'étape ABC / 123 par l'étape langue + disposition d'iOS (le mode par défaut reste dans Réglages).
 10. **Emoji — `kbd.emoji`**
     - iOS : catégories en bas avec 🔍 « Rechercher des Emoji » et ABC.
-    - Android : `EmojiPickerView` d'androidx, catégories en haut, pas de recherche ; ABC et ⌫ en bas.
-    - Proposition : ajouter la recherche d'emoji (mots-clés français).
+    - Android : `EmojiPickerView` d'androidx, catégories en haut, pas de recherche ; ABC et ⌫ en bas ; la rangée micro disparaît pendant le choix d'emoji (sur iOS, ☰ et le micro restent visibles).
+    - Proposition : ajouter la recherche d'emoji (mots-clés français) et garder la barre du clavier visible (avec #139).
+11. **Sélecteur de clavier système — `sys.ime-picker`**
+    - iOS : le clavier apparaît une fois, « Dictus », dans la liste du globe.
+    - Android : Dictus y déclare deux sous-types, « AZERTY (Français) » et « QWERTY (Anglais) », sans rapport avec les quatre langues réelles (FR, EN, ES, DE) ni avec la disposition choisie dans Réglages.
+    - Proposition : un seul sous-type « Dictus » (ou un par langue réellement prise en charge).
+12. **Libellés d'accessibilité du clavier — `kbd.keys`, `kbd.recording`**
+    - iOS : libellés en français sur un appareil français.
+    - Android : `Keyboard language DE`, `Settings` en anglais (le reste est en français : `Microphone`, `Annuler la dernière dictée`).
+    - Proposition : traduire ces content descriptions (strings.xml FR/EN).
+
+## Anomalie fonctionnelle constatée pendant les captures (hors design)
+
+- **`app.recording` — `Retour` n'arrête pas l'enregistrement** (Pixel 4, build de `develop` `f2b15c5`, 2026-10-20 21:43). « Nouvelle dictée » démarre l'enregistrement aussitôt ; quitter l'écran par `Retour` ramène à Accueil mais `DictationService` reste au premier plan (`isForeground=true`), le témoin micro reste vert, aucune ligne `Recording cancelled`. Il a fallu « Applis actives → Arrêter » pour libérer le micro. Preuve hors repo : `/home/pierre/Dev/dictus-proofs/verify-dictus-android/20261020-214307-0f15824/90-bug-recording-continues-after-retour.png`. Proposition : annuler l'enregistrement (ou demander confirmation) en quittant l'écran ; à ouvrir en issue avec le label `needs-physical-test`.

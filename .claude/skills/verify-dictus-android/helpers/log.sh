@@ -11,10 +11,10 @@ dictus_lines() {
   adbs logcat -d -v threadtime -T "$1" --pid="$pid" 2>/dev/null
 }
 case "${1:-}" in
-  mark)  adbs shell date +'%m-%d %H:%M:%S.000' | tr -d '\r' ;;
+  mark)  adbs shell "date '+%m-%d %H:%M:%S.000'" | tr -d '\r' ;;
   since) dictus_lines "${2:?mark}" ;;
   wait)
-    re="${2:?regex}"; secs="${3:-15}"; mark="${4:-$(adbs shell date +'%m-%d %H:%M:%S.000' | tr -d '\r')}"
+    re="${2:?regex}"; secs="${3:-15}"; mark="${4:-$(adbs shell "date '+%m-%d %H:%M:%S.000'" | tr -d '\r')}"
     for _ in $(seq 1 "$secs"); do
       line="$(dictus_lines "$mark" | grep -E "$re" | head -1)"
       if [ -n "$line" ]; then echo "found: $line"; exit 0; fi

@@ -10,7 +10,7 @@ The emoji key opens a picker in place of the letters, with categories and recent
 ## Sub-features
 
 - `emoji.picker`: Emoji by category (androidx `EmojiPickerView`); ⌫ in the picker. — présent
-- `emoji.recents`: Recently used emoji, provided by `EmojiPickerView`. — présent (from the code; to confirm on device)
+- `emoji.recents`: « UTILISÉS RÉCEMMENT », first category (empty: « Vous n'avez pas encore utilisé d'emoji »). — présent
 - `emoji.search`: — absent.
 - `emoji.back-to-letters`: `ABC` at the bottom left. — présent
 
@@ -23,7 +23,7 @@ The emoji key opens a picker in place of the letters, with categories and recent
 
 Preconditions: Launch and Doctor OK, a scratch note focused.
 
-- **Open.** Tap the 😊 key (bottom row, second from left). → the picker replaces the keys (`screen.sh kbd.emoji`).
+- **Open.** Tap `😊` (bottom row, second from left). → the picker replaces the keys *and the mic row*: category tabs (`UTILISÉS RÉCEMMENT`, `ÉMOTICÔNES ET ÉMOTIONS`…), emoji as `View "😀"`, `ABC`, `⌫` (`screen.sh kbd.emoji`).
 - **Back.** Tap `ABC`. → the letters are back.
 - **Proof.** Screenshots of both states; an inserted emoji appears in the field's value.
 

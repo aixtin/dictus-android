@@ -70,30 +70,32 @@ mcp__argent__screenshot      { udid }                                  # may sho
 
 CLI equivalent: `argent run describe --udid 99071FFAZ00EBN`.
 
-**Handles.** The app sets no `resource-id` (Compose without `testTagsAsResourceId`), so the stable handles are the French texts and content descriptions below, all from `values-fr/strings.xml`. Select by `text` (case-insensitive substring); prefer the longest unique label.
+**Handles.** The app sets no `resource-id` (Compose without `testTagsAsResourceId`), so the stable handles are the French texts and content descriptions below, as Argent's tree shows them on the Pixel (seen 2026-10-20). Select by `text` (case-insensitive substring); prefer the longest unique label. A settings row is one node whose label joins title and value with ` / `.
 
-| Where | Handles (FR device) |
+| Where | Handles (FR device, as listed by `describe`) |
 | --- | --- |
 | Bottom tabs | `Accueil`, `Modèles`, `Réglages` |
-| Accueil | `Nouvelle dictée`, `Modèle actif`, `Dernière transcription` + copy icon `Copier` |
-| In-app recording | mic `Enregistrer`, `Arrêter`, `Toucher pour arrêter`, `Transcription en cours…`, `Résultat` + `Copier`, back `Retour` |
-| Modèles | sections `Téléchargés` / `Disponibles`; card names `Tiny`, `Base`, `Small`, `Small Q5`, `Medium`, `Parakeet 110M`, `Parakeet 0.6B`; `Actif`, `Télécharger`, `Supprimer`, `Réessayer`; dialogs `Supprimer <nom> ?`, `Modèle anglais uniquement`, `RAM insuffisante` |
-| Réglages | sections `TRANSCRIPTION`, `CLAVIER`, `APPARENCE`, `A PROPOS`; rows `Langue`, `Langue du clavier`, `Disposition du clavier`, `Mode par défaut`, `Suggestions`, `Correction automatique`, `Retour haptique`, `Sons du clavier`, `Sons`, `Thème`, `Langue de l'interface`, `Version`, `Debug Logs`, `Exporter les logs de débogage`, `Licences`, `GitHub`, `Mentions légales` |
-| Sons | `Son de dictée`, `Volume`, `Son de début`, `Son de fin`, `Son d'annulation`, back `Retour` |
-| Onboarding | `Commencer`, `Autoriser le micro`, `Continuer`, `Ouvrir les paramètres`, `Sélectionner Dictus`, `ABC` / `123`, `Télécharger`, `Réessayer` |
+| Accueil | `Modèle actif`, the model name (`Small Q5`), `Nouvelle dictée`; `Dernière transcription` + `Copier` only after a dictation |
+| In-app recording | `Retour`, the timer `0:06`, `Arrêter`, `Toucher pour arrêter`; then `Transcription en cours…`, `Résultat` + `Copier` |
+| Modèles | `Téléchargés`, `Disponibles`, card names `Tiny` `Base` `Small` `Small Q5` `Medium` `Parakeet 110M` `Parakeet 0.6B`, badges `WK` / `NV`, `Actif`, `Télécharger`, `Anglais uniquement`, `Nécessite 8 Go de RAM ou plus`, `Stockage utilisé : …` |
+| Réglages | `TRANSCRIPTION`, `Langue / Automatique`, `CLAVIER`, `Langue du clavier / …`, `Disposition du clavier / AZERTY`, `Mode par défaut / ABC`, `Suggestions`, `Correction automatique`, `Retour haptique`, `Sons du clavier`, `Sons`, `APPARENCE`, `Thème / Sombre`, `Langue de l'interface / Automatique`, `A PROPOS`, `Version`, `Debug Logs`, `Exporter les logs de débogage`, `Licences`, `GitHub`, `Mentions légales` |
+| Picker sheets | title (`Disposition du clavier`…), options with `[checked]`, `Fermer la feuille` (tap it to dismiss without choosing) |
+| Sons | `Retour`, `GENERAL`, `Son de dictée`, `Volume`, `SONS`, `Son de début / Electronic 01F`, `Son de fin / …`, `Son d'annulation / …` (`[disabled]` while « Son de dictée » is off); in a list `Electronic 01F / Sélectionné` |
+| Onboarding (code only, not seen) | `Commencer`, `Autoriser le micro`, `Continuer`, `Ouvrir les paramètres`, `Sélectionner Dictus`, `ABC` / `123`, `Télécharger`, `Réessayer` |
 
-**The Dictus keyboard** is a separate window (the IME). Its keys are drawn by Compose; when Argent's tree does not list them, tap by coordinate from the screenshot of a known layout and prove the press with a log line (`log.sh wait`). Known handles inside it: the language code (`Keyboard language FR`: tap cycles FR→EN→ES→DE, long-press opens Dictus Réglages), the mic pill (`Microphone`, or `Microphone indisponible pendant le chargement…` while the model loads), during recording `✕` (cancel) and `✓` (insert), `Settings` (opens the system keyboard picker), `En écoute…`, `Transcription…`, the undo chip `Annuler la dernière dictée`, the emoji page's `ABC`.
+**The Dictus keyboard is fully in Argent's tree** (its own `ComposeView` at the bottom of the screen, above the app's nodes): each key is a `StaticText` with its label (`a`…`m`, `⇧`, `'`, `⌫`, `?123`, `😊`, `espace`, `retour`; `Leertaste` / `Eingabe` when the keyboard language is DE), the language code is `Keyboard language FR` (tap cycles FR→EN→ES→DE, long-press opens Dictus Réglages without tabs), the mic is `Microphone` (`Microphone indisponible pendant le chargement…` while the model loads), suggestions are three `View`s labelled with the words. While recording: `✕` (cancel), `✓` (insert), the timer `00:05`, `En écoute…`, `Settings` (opens the system keyboard picker). The emoji page uses androidx resource-ids `dev.pivisolutions.dictus:id/emoji_picker_header` / `emoji_picker_body`, category names (`UTILISÉS RÉCEMMENT`…), then `ABC` and `⌫`. Tap the centre of a key's frame.
 
-**Text fields to type into.** Use a scratch note you create yourself, never one of Pierre's notes (keep the « bonjour » notes untouched). The test note is deleted at the end of the run.
+**The tree can lag.** `describe` returned with an action sometimes shows the screen *before* the action (seen after taps on Sons, after scrolling Modèles, after a sub-screen's back). Give the step `delayMs: 1000` in `run-sequence`, or call `describe` again, and compare with the screenshot before tapping. Returning from a sub-screen can restore Réglages at a different scroll offset: re-read the frames, never reuse old ones.
+
+**Text fields to type into.** The notes app on the Pixel is Simple Notes (`dev.dettmer.simplenotes`). Create a scratch note (`Nouvelle note` → `Note textuelle`), type in `Titre`, never open one of Pierre's notes (keep the « bonjour » notes untouched). Delete it at the end: `Plus d'options` → `Supprimer` moves it to the bin; then `Paramètres` → `Corbeille` → `Supprimer la note définitivement` on **your** note only (other threads' test notes may be there too) → `Supprimer définitivement`.
 
 **Logs that prove an action** (Timber, logcat of the Dictus process; `helpers/log.sh`):
 
 | Action | Line (regex) |
 | --- | --- |
-| Mic tap from the keyboard | `handleMicTap called` / `Recording started via mic tap` (or the gate's `startRecording`) |
-| Recording started (service) | `DictationService started foreground with ACTION_START` |
-| ✕ in the keyboard | `Recording cancelled` (twice: IME and service, `samples discarded`) |
-| ✓ in the keyboard | `confirmAndTranscribe: \d+ samples captured`, then `transcriptionInserted` (length only, never the text) |
+| Recording started (keyboard mic or Nouvelle dictée) | `DictationService started foreground with ACTION_START` |
+| ✕ in the keyboard | `Recording cancelled, samples discarded` (service), between `AudioRecord cancelled, samples discarded` and the IME's `Recording cancelled` |
+| ✓ in the keyboard | `confirmAndTranscribe: \d+ samples captured`, then `Transcribed text inserted: length=\d+` (never the text) |
 | Undo chip | `Dictation undone: length=\d+` or `Dictation undo refused` |
 | Model warm-up | `Engine prewarm complete for model=…` / `Engine prewarm skipped` |
 
@@ -104,12 +106,36 @@ $H/log.sh wait 'Recording cancelled' 15 "$M" # prints the line, exit 1 after 15 
 $H/log.sh since "$M"                         # everything Dictus logged since the mark
 ```
 
+**The recipe this skill is proven on** — `dictation.cancel` from the keyboard, 2026-10-20, run `20261020-215152-0f15824`:
+
+```bash
+H=.claude/skills/verify-dictus-android/helpers
+$H/lock.sh acquire verify-map && $H/launch.sh && $H/doctor.sh
+# Argent: launch-app dev.dettmer.simplenotes → tap « Nouvelle note » → « Note textuelle » (Titre focused, keyboard up)
+$H/evidence.sh 01-dictation.cancel-keyboard-before
+M=$($H/log.sh mark)
+# Argent: tap the centre of « Microphone »
+$H/log.sh wait 'ACTION_START' 15 "$M"
+$H/evidence.sh 02-dictation.cancel-recording "$M"
+# Argent: tap the centre of « ✕ »
+$H/log.sh wait 'Recording cancelled, samples discarded' 10 "$M"
+$H/evidence.sh 03-dictation.cancel-after "$M"
+# Argent: describe → TextField "Titre" has no value; then delete the scratch note
+$H/cleanup.sh "" verify-map     # then mcp__argent__stop-all-simulator-servers {devices:["99071FFAZ00EBN"]}
+```
+
+Every other feature's recipe is in `features/<id>.md`, under "Driving it with Argent".
+
 Rules that hold for every feature:
 
 - **Do not change Pierre's settings**, or put them back exactly: transcription `Langue` stays `Automatique`, the active model stays the one Doctor reported, theme, keyboard language and layout unchanged. Open a picker only to capture it, then close it without choosing (system back).
 - **Never download a model** unless the task needs one (Tiny is 75 MB; Medium and Parakeet 0.6B are over 500 MB). Never delete one.
 - A dictation records the room through the phone's microphone. Cancel (`✕`) proves the chain without a transcript; a `✓` inserts whatever was heard.
 - The keyboard only appears over a focused text field of another app; it is never in Dictus's own tree.
+- **Never tap the nav bar's keyboard button** (`Changer le mode de saisie`, bottom right while a keyboard is up): a tap switches straight to the next keyboard (AOSP) and changes Pierre's default IME. Long-press it (`gesture-custom` Down, 900 ms, Up) to get the picker; if it happened, `adb -s 99071FFAZ00EBN shell ime set dev.pivisolutions.dictus/.ime.DictusImeService`.
+- **« Nouvelle dictée » starts recording at once**, and `Retour` leaves the screen without stopping it (the service keeps the mic; seen 2026-10-20). Stop it with `Arrêter` (that transcribes the room and writes « Dernière transcription ») or, to discard, Quick Settings (swipe down twice) → `1 appli est active` → Dictus `Arrêter`, which stops the app process.
+- Notifications are **denied** for Dictus on this Pixel: the recording notification never shows; the running service appears only as « 1 appli est active » in Quick Settings.
+- Pierre's keyboard language is **DE** (Doctor's snapshot): cycle a full turn (4 taps) when you change it for a capture.
 
 ## Evidence
 
@@ -129,6 +155,7 @@ Everything for a run lands in `/home/pierre/Dev/dictus-proofs/verify-dictus-andr
 | `build.log`, `install.log`, `am-start.log`, `00-launch.png` | `launch.sh` | build, install, first screen |
 | `<name>.png` | `evidence.sh` | `adb exec-out screencap -p`, 1080×2280 |
 | `<name>.log` | `evidence.sh` (with a mark) | Dictus logcat lines since the mark |
+| `prefs-before.pb` / `prefs-after.pb` | `launch.sh` / `cleanup.sh` | the app's DataStore before and after, to prove settings were put back |
 | `dictus.full.log` | `cleanup.sh` | the app's own `files/dictus.log` (privacy-safe: lengths, never text) |
 
 Proof standards: drive the real user path (keys, buttons, the keyboard over a real app), not an internal setter or `am broadcast`; capture the screen **before** and **after** the action and the log line that proves it happened; check the side effect too (for a cancel: the field is unchanged; for an insert: the field holds the text). A screenshot without its log line is a picture, not a proof. Argent's `screenshot` can lag one frame: use `evidence.sh` (adb screencap) for the file you keep. Only screen-map captures (`screen.sh`, resized to 1140 px high and quantized with python3 PIL, < 300 KB) go in the repository, under `screens/`.
@@ -142,7 +169,7 @@ Proof standards: drive the real user path (keys, buttons, the keyboard over a re
 
 Then stop Argent's services **for the Pixel only**: `mcp__argent__stop-all-simulator-servers { devices: ["99071FFAZ00EBN"] }` (CLI: `argent run stop-all-simulator-servers --devices 99071FFAZ00EBN`). Never call it without `devices`: one tool-server serves every agent on this machine.
 
-`cleanup.sh` copies `files/dictus.log` into the run, restores the IME that Launch replaced (if it replaced one), releases the lock **only if your tag owns it**, and ends with `CLEANUP OK run=… files=<n>`. It never uninstalls, never clears data, never kills a process by name, never deletes anything under `dictus-proofs/`. Delete your scratch note yourself before Cleanup. Run Cleanup after a failed run too, then check the evidence survived: `ls -la <run-dir>`.
+`cleanup.sh` copies `files/dictus.log` and the DataStore (`prefs-after.pb`) into the run, prints `PREFS same` or the keys that differ from `prefs-before.pb`, restores the IME that Launch replaced (if it replaced one), releases the lock **only if your tag owns it**, and ends with `CLEANUP OK run=… files=<n>`. It never uninstalls, never clears data, never kills a process by name, never deletes anything under `dictus-proofs/`. Delete your scratch note yourself before Cleanup. Run Cleanup after a failed run too, then check the evidence survived: `ls -la <run-dir>`.
 
 ## Helpers
 

@@ -30,4 +30,4 @@ resolve_run() {
   echo "$run"
 }
 
-report() { echo "$(date -Is) $*" >> "$1/report.txt"; }
+report() { local run="$1"; shift; echo "$(date -Is) $*" >> "$run/report.txt"; }

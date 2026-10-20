@@ -9,6 +9,9 @@ cmd="${1:-status}"; tag="${2:-verify-map}"
 mkdir -p "$DICTUS_PROOFS"
 case "$cmd" in
   acquire)
+    if [ "$(cut -d' ' -f1 "$DICTUS_LOCK/owner" 2>/dev/null)" = "$tag" ]; then
+      echo "LOCK ACQUIRED (already held by $tag since $(cut -d' ' -f2 "$DICTUS_LOCK/owner"))"; exit 0
+    fi
     for i in $(seq 0 30); do
       if mkdir "$DICTUS_LOCK" 2>/dev/null; then
         echo "$tag $(date -Is)" > "$DICTUS_LOCK/owner"

@@ -9,7 +9,7 @@ Dictus's Home tab starts a full-screen recording without any keyboard; the resul
 
 ## Sub-features
 
-- `dictation.start-in-app`: « Nouvelle dictée » on Accueil opens the recording screen; tap the mic, speak, tap to stop. — présent
+- `dictation.start-in-app`: « Nouvelle dictée » on Accueil opens the recording screen **and starts recording at once**; « Toucher pour arrêter » stops and transcribes. — présent
 - `dictation.copy-last`: The « Dernière transcription » card on Accueil copies its text (`Copier`). — présent
 - `dictation.download-prompt`: — partiel: Accueil never asks to download a model (it always shows « Modèle actif »); only the mic answers « Aucun modèle vocal » once tapped.
 - `dictation.from-widget`: — absent: no home-screen widget.
@@ -17,7 +17,7 @@ Dictus's Home tab starts a full-screen recording without any keyboard; the resul
 ## How to get to it (user POV)
 
 1. Open Dictus, tab Accueil.
-2. Tap « Nouvelle dictée », tap the mic, speak, « Toucher pour arrêter ».
+2. Tap « Nouvelle dictée », speak (recording has started), tap the stop button (« Toucher pour arrêter »).
 3. Copy the result (`Copier`) on the recording screen, or later from the « Dernière transcription » card on Accueil.
 
 ## Driving it with Argent
@@ -25,12 +25,15 @@ Dictus's Home tab starts a full-screen recording without any keyboard; the resul
 Preconditions: Launch and Doctor OK, onboarding completed, a model downloaded.
 
 - **Home.** Tap `Accueil`. → `Modèle actif`, `Nouvelle dictée` and, if any, `Dernière transcription` in the tree (`screen.sh app.home`).
-- **Open the recorder.** Tap `Nouvelle dictée`. → title `Nouvelle dictée`, mic `Enregistrer` (`screen.sh app.recording`).
-- **Leave without recording.** Tap `Retour`. → back on Accueil, nothing changed.
-- **Record (only when the task accepts recording the room).** Tap `Enregistrer`, then `Arrêter`. → `Transcription en cours…` then `Résultat` with `Copier`; log `confirmAndTranscribe: N samples captured`.
+- **Open the recorder (this records).** Tap `Nouvelle dictée`. → `Retour`, a running timer (`0:01`), `Arrêter`, `Toucher pour arrêter`; log `ACTION_START` (`screen.sh app.recording`).
+- **Stop and transcribe (records the room).** Tap `Arrêter`. → `Transcription en cours…` then `Résultat` with `Copier`; log `confirmAndTranscribe: N samples captured`; « Dernière transcription » appears on Accueil.
+- **Leave without a transcript.** `Retour` does **not** stop the recording (see Gotchas). Stop it from Quick Settings: swipe down twice, tap `1 appli est active`, Dictus `Arrêter`; the green mic chip disappears.
 - **Proof.** Screens before/after and, for a real dictation, the `Résultat` text in the tree plus the log line; the « Dernière transcription » card on Accueil shows the same text afterwards.
 
 ## Gotchas
+
+- **Bug seen 2026-10-20:** leaving the recording screen with `Retour` (or system back) keeps recording: `DictationService` stays foreground (`dumpsys activity services` → `isForeground=true`), the mic chip stays green, no `Recording cancelled` line. Only `Arrêter`, the (invisible here) notification's Stop, or « Applis actives → Arrêter » ends it. Evidence: `dictus-proofs/verify-dictus-android/20261020-214307-0f15824/90-bug-recording-continues-after-retour.png`.
+- Pierre's Accueil shows no « Dernière transcription » card at the time of writing; it appears after the first in-app or keyboard dictation.
 
 - Copying writes to Pierre's clipboard; avoid it unless the task needs it.
 - « Dernière transcription » is Pierre's last real dictation: it is private, do not paste it into evidence or a PR.

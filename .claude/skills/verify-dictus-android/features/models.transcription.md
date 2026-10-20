@@ -9,7 +9,7 @@ The Modèles tab lists the offline speech models (Whisper and Parakeet), downloa
 
 ## Sub-features
 
-- `models.catalogue`: Sections « Téléchargés » and « Disponibles »; each card shows name, quality, size, « Précision » and « Vitesse » bars; Whisper Tiny/Base/Small/Small Q5/Medium, Parakeet 110M/0.6B. — présent
+- `models.catalogue`: Sections « Téléchargés » and « Disponibles »; each card shows name, engine badge (`WK` Whisper, `NV` Parakeet), a one-line description, « Précision » and « Vitesse » bars, size; Whisper Tiny/Base/Small/Small Q5/Medium, Parakeet 110M/0.6B. — présent
 - `models.recommended`: — partiel: the recommendation (by RAM) appears only in onboarding (« Recommandé pour votre appareil »); no badge in Modèles.
 - `models.download`: « Télécharger » on an available card, with « Téléchargement — N% » and « Extraction… » (Parakeet). — présent
 - `models.select`: Tap a downloaded card to make it « Actif ». — présent
@@ -31,12 +31,14 @@ The Modèles tab lists the offline speech models (Whisper and Parakeet), downloa
 Preconditions: Launch and Doctor OK. Note the active model Doctor printed; it must be the active one at the end.
 
 - **Open.** Tap `Modèles`. → `Téléchargés`, `Disponibles`, the active card shows `Actif` (`screen.sh app.models`).
-- **Scroll.** `mcp__argent__gesture-swipe` from (0.5, 0.8) to (0.5, 0.3). → `Stockage utilisé` and the provider lines.
+- **Scroll.** `mcp__argent__gesture-swipe` from (0.5, 0.8) to (0.5, 0.1) twice. → `Parakeet 110M` (`Anglais uniquement`), `Parakeet 0.6B` greyed with `Nécessite 8 Go de RAM ou plus`, `Stockage utilisé : 190 Mo / 2196 Mo`, the Whisper / Parakeet lines. **Trust the screenshot here**: after this scroll, `describe` kept returning the pre-scroll tree.
 - **Delete dialog (no deletion).** Tap `Supprimer` on a downloaded non-active card, capture, tap `Annuler`. → card still in `Téléchargés`.
 - **Proof.** The tree before/after and the unchanged `Actif` card. A download is proved by `Téléchargement — N%` then the card moving to `Téléchargés` and the file in `adb shell run-as dev.pivisolutions.dictus ls files/models`.
 
 ## Gotchas
 
 - **Never download or delete a model** on Pierre's phone unless the task needs it (75 MB to over 600 MB, real traffic; deleting loses his setup).
+- The active card has no trash icon: delete needs another downloaded model.
+- Card descriptions are unaccented (« Rapide et leger », « Precis et equilibre », « Haute precision », « Detection automatique »).
 - Selecting a model reloads the engine: the next dictation waits on the loading overlay.
-- RAM gating rounds `ActivityManager.totalMem` up to the marketed size (#121); Parakeet 0.6B needs 8 GB, so on the 6 GB Pixel 4 it is greyed with « Nécessite 8 Go de RAM ou plus » (to confirm on device).
+- RAM gating rounds `ActivityManager.totalMem` up to the marketed size (#121); Parakeet 0.6B needs 8 GB, so on the 6 GB Pixel 4 it is greyed with « Nécessite 8 Go de RAM ou plus » (seen on the Pixel 2026-10-20).

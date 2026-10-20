@@ -31,6 +31,9 @@ apk_sha="$(sha256sum "$DICTUS_APK" | cut -c1-16)"
 adbs install -r "$DICTUS_APK" > "$run/install.log" 2>&1 || { echo "error: install failed, see $run/install.log"; exit 1; }
 report "$run" "installed apk_sha=$apk_sha"
 
+# Settings snapshot, compared by cleanup.sh: a run must leave Pierre's settings as it found them.
+adbs exec-out run-as "$DICTUS_PKG" cat files/datastore/dictus_prefs.preferences_pb > "$run/prefs-before.pb" 2>/dev/null || true
+
 # Default IME: remember the previous one so cleanup.sh can put it back.
 prev_ime="$(adbs shell settings get secure default_input_method | tr -d '\r')"
 echo "PREV_IME=$prev_ime" > "$run/run.env"

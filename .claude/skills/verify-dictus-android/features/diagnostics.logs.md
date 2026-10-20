@@ -24,7 +24,8 @@ Réglages → A PROPOS shows the version, the app's own log (without any dictate
 Preconditions: Launch and Doctor OK.
 
 - **Scroll.** Réglages, `gesture-swipe` (0.5, 0.8) → (0.5, 0.2) twice. → `A PROPOS`, `Version`, `Debug Logs` (`evidence.sh about`).
-- **Read the log.** Tap `Debug Logs`. → title `Debug Logs` and log lines, or `Aucun log disponible` (`screen.sh app.settings.debug-logs`); `Retour`.
+- **Read the log.** Tap `Debug Logs`. → title `Debug Logs`, the menu `⋮`, log lines oldest first (`screen.sh app.settings.debug-logs`); `Retour`.
+- **Export (sheet only).** Tap `Exporter les logs de débogage`. → the share sheet `Partage de 1 fichier`, `dictus-logs.zip` (seen 2026-10-20); system back, never pick a destination.
 - **Licences.** Tap `Licences`. → the list (`screen.sh app.settings.licences`); `Retour`.
 - **Proof.** The tree of each screen. The same log is readable from the host: `adb shell run-as dev.pivisolutions.dictus cat files/dictus.log`.
 
@@ -32,4 +33,5 @@ Preconditions: Launch and Doctor OK.
 
 - Do not tap « Effacer » in the menu: it erases Pierre's log.
 - The export opens the share sheet with Pierre's apps and accounts: prove the sheet opens, then system back; never send.
+- Coming back from Debug Logs restores Réglages at another scroll offset: re-read the frames before the next tap (a stale frame opened the export sheet once).
 - « GitHub » and « Mentions légales » open the browser.
