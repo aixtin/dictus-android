@@ -21,6 +21,7 @@ import dagger.hilt.InstallIn
 import dev.pivisolutions.dictus.R
 import dev.pivisolutions.dictus.audio.DictationSoundPlayer
 import dev.pivisolutions.dictus.core.preferences.PreferenceKeys
+import dev.pivisolutions.dictus.core.preferences.TranscriptionLanguage
 import dev.pivisolutions.dictus.core.logging.PrivacySafeLog
 import dev.pivisolutions.dictus.core.service.DictationController
 import dev.pivisolutions.dictus.core.service.DictationState
@@ -347,14 +348,14 @@ class DictationService : Service(), DictationController {
             //    without needing a service restart.
             val prefs = dataStore.data.first()
             val activeModelKey = prefs[PreferenceKeys.ACTIVE_MODEL] ?: ModelCatalog.DEFAULT_KEY
-            val languagePref = prefs[PreferenceKeys.TRANSCRIPTION_LANGUAGE] ?: "auto"
-            // "auto" maps to null for whisper.cpp which triggers its own language detection.
-            val whisperLanguage = if (languagePref == "auto") null else languagePref
+            val languagePref = TranscriptionLanguage.resolve(prefs[PreferenceKeys.TRANSCRIPTION_LANGUAGE])
+            // "auto" is passed through: whisper.cpp detects the language itself.
+            val engineLanguage = TranscriptionLanguage.engineLanguage(languagePref)
 
             Timber.d(
                 "confirmAndTranscribe: model=%s, language=%s",
                 activeModelKey,
-                whisperLanguage ?: "auto",
+                engineLanguage,
             )
 
             // 3. Ensure model is available (download on first use)
@@ -372,7 +373,7 @@ class DictationService : Service(), DictationController {
                 modelKey = activeModelKey,
                 modelPath = modelPath,
                 samples = samples,
-                language = whisperLanguage ?: "fr",
+                language = engineLanguage,
             )
 
             if (rawText == null) {
