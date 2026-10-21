@@ -1,5 +1,8 @@
 package dev.pivisolutions.dictus.recording
 
+import android.os.Looper
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,7 +25,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 
 /** Leaving the recording screen must release the microphone without transcribing (#142). */
 @RunWith(RobolectricTestRunner::class)
@@ -89,6 +94,35 @@ class RecordingScreenLeaveTest {
         showScreen = false
         composeTestRule.waitForIdle()
 
+        assertEquals(1, controller.cancelRecordingCallCount)
+        assertEquals(0, controller.confirmAndTranscribeCallCount)
+    }
+
+    @Test
+    fun `rotation keeps the recording and leaving afterwards still cancels`() {
+        val activityController = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        fun ComponentActivity.showRecordingScreen() = setContent {
+            DictusTheme {
+                if (showScreen) RecordingScreen(dictationController = controller, onBack = {})
+            }
+        }
+        activityController.get().showRecordingScreen()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, controller.startRecordingCallCount)
+
+        // A configuration change destroys the activity (ON_STOP, then dispose) and recreates it.
+        activityController.recreate()
+        activityController.get().showRecordingScreen()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(0, controller.cancelRecordingCallCount)
+        assertEquals(1, controller.startRecordingCallCount)
+        assertEquals(DictationState.Recording(), controller.state.value)
+
+        // The recreated screen still owns the recording, so leaving (here: going to the
+        // background, a real stop rather than a configuration change) still releases the mic.
+        activityController.pause().stop()
+        shadowOf(Looper.getMainLooper()).idle()
         assertEquals(1, controller.cancelRecordingCallCount)
         assertEquals(0, controller.confirmAndTranscribeCallCount)
     }
