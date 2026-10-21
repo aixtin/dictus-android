@@ -24,7 +24,12 @@ import java.io.File
  * WHY null AssetManager: Models live in the app's files directory, not in assets.
  * Passing null to OfflineRecognizer routes to the newFromFile() JNI path.
  */
-class ParakeetProvider : SttProvider {
+class ParakeetProvider(
+    // Injectable so a unit test can simulate a missing native library without the
+    // real OfflineRecognizer, whose class init loads libsherpa-onnx-jni.
+    private val createRecognizer: (OfflineRecognizerConfig) -> OfflineRecognizer =
+        { config -> OfflineRecognizer(assetManager = null, config = config) },
+) : SttProvider {
 
     override val providerId: String = "parakeet"
     override val displayName: String = "Parakeet (sherpa-onnx)"
@@ -90,12 +95,21 @@ class ParakeetProvider : SttProvider {
         )
 
         return try {
-            recognizer = OfflineRecognizer(assetManager = null, config = config)
+            recognizer = createRecognizer(config)
             Timber.d("ParakeetProvider initialized (%s) with model: %s",
                 if (isTransducer) "transducer" else "CTC", modelPath)
             true
         } catch (e: Exception) {
             Timber.e(e, "ParakeetProvider: initialization failed for %s", modelPath)
+            false
+        } catch (e: LinkageError) {
+            // sherpa-onnx ships arm64-v8a and armeabi-v7a only. On an x86_64 device or
+            // emulator the first load throws UnsatisfiedLinkError, and every later
+            // attempt NoClassDefFoundError (the class init already failed). Both are
+            // LinkageError: Parakeet is unavailable here, so fail cleanly instead of
+            // crashing. Other Errors (OutOfMemoryError...) still propagate.
+            Timber.e(e, "ParakeetProvider: sherpa-onnx native library unavailable on %s, Parakeet disabled",
+                System.getProperty("os.arch"))
             false
         }
     }
