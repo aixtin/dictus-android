@@ -34,7 +34,7 @@ Andy's voice is not a test input. The room noise proves that the chain runs, not
 
 **3. Pixel 4, Pierre.** Pierre checks what only a person can judge: dictation with his own voice in French and in other languages, the quality of the text, and how the keyboard feels in his own apps. A PR that touches this tier carries the `needs-physical-test` label (see `docs/agents/physical-test-label.md`: the label is added by path, and only Titus removes it after Pierre validates). It is not merged before Pierre has tested it in a batch device test.
 
-A batch device test is a procedure, not a skill. Andy merges the branches of the pending labelled PRs into one local debug build, installs it on the Pixel with `adb install -r` (Pierre's data stays), and gives Pierre a checklist with one line per PR, `#<num> <what to try>`. Pierre answers `#<num> OK` or `#<num> KO <what went wrong>`, and Titus removes the label from each PR marked OK.
+Batch device tests follow the shared `batch-device-test` skill (proposed in Pivii/skills#20, not merged yet). Pierre replies per PR with `#<num> OK` or `#<num> KO: <what failed>`.
 
 **4. Out of reach.** Pierre has no phone more recent than the Pixel 4. Small, Small Q5, Medium and the models gated at 8 GB of RAM (`Nécessite 8 Go de RAM ou plus` in Modèles) cannot be validated. Some of them load on the Pixel 4 (Small Q5 is installed there), but nobody can check how they behave on the phones they are meant for. A PR that changes them says "not tested on a recent phone". These models never become the default model: the default stays Tiny (`ModelCatalog.DEFAULT_KEY`).
 
