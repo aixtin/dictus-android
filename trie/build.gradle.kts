@@ -21,12 +21,14 @@ android {
         }
     }
 
-    // x86_64 only in debug (emulator), merged with the ARM ABIs of defaultConfig.
-    // Same rule as :whisper; release keeps arm64-v8a and armeabi-v7a only.
+    // Opt-in x86_64 for debug builds (-Pdictus.emulatorAbi=true), same rule as
+    // :whisper. Release keeps arm64-v8a and armeabi-v7a only.
     buildTypes {
         debug {
-            ndk {
-                abiFilters += "x86_64"
+            if (providers.gradleProperty("dictus.emulatorAbi").orNull.toBoolean()) {
+                ndk {
+                    abiFilters += "x86_64"
+                }
             }
         }
     }
