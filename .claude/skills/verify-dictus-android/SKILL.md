@@ -36,7 +36,7 @@ Andy's voice is not a test input. The room noise proves that the chain runs, not
 
 Batch device tests follow the shared `batch-device-test` skill (proposed in Pivii/skills#20, not merged yet). Pierre replies per PR with `#<num> OK` or `#<num> KO: <what failed>`.
 
-**4. Out of reach.** Pierre has no phone more recent than the Pixel 4. Small, Medium and Parakeet 0.6B v3, gated at 8 GB of RAM (`Nécessite 8 Go de RAM ou plus` in Modèles), cannot be validated on the phones they are meant for. A PR that changes them says "not tested on a recent phone". Onboarding installs Small Q5 below 8 GB of RAM (so on the Pixel 4) and Parakeet v3 from 8 GB (`ModelCatalog.recommendedModelKey`); `DEFAULT_KEY` (`tiny`) is only a fallback when no model is active.
+**4. Out of reach.** Pierre has no phone more recent than the Pixel 4. Small, Medium and Parakeet 0.6B v3 (gated at 8 GB of RAM: `Nécessite 8 Go de RAM ou plus` in Modèles) cannot be validated on the phones they are meant for. A PR that changes them says "not tested on a recent phone". Onboarding installs Small Q5 below 8 GB of RAM (so on the Pixel 4) and Parakeet v3 from 8 GB (`ModelCatalog.recommendedModelKey`); `DEFAULT_KEY` (`tiny`) is only a fallback when no model is active.
 
 ## Launch
 
