@@ -83,4 +83,4 @@ Four test tiers, detailed in the skill's `SKILL.md` → Test tiers:
 
 ### pstack
 
-pstack (<https://github.com/cursor/plugins/tree/main/pstack>) is the reference toolbox for agent workflows. It provides `create-verification-skill` and `maintain-verification-skill` (both user-invoked only), `unslop` for prose, `tdd`, `poteto-mode` and a set of engineering principle skills. It is installed at user level, not in this repo.
+pstack (<https://github.com/cursor/plugins/tree/main/pstack>) is the reference toolbox for agent workflows. It provides `create-verification-skill` and `maintain-verification-skill` (both user-invoked only), `unslop` for prose, `tdd`, `poteto-mode` and a set of engineering principle skills. It is enabled for this repo through `.claude/settings.json`; Claude Code asks you to trust the `cursor-plugins` marketplace on first use.
