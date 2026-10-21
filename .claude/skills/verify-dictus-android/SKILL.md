@@ -11,6 +11,33 @@ Read first: `features/README.md` maps every user feature to its recipe, `feature
 
 **One driver at a time.** Argent (the `mcp__argent__*` tools, or `argent run <tool>` on the CLI) is the only UI driver. Its `describe` runs `uiautomator dump`, which needs UiAutomation for itself: never run mobile-mcp, Maestro, Appium or a hand-made `uiautomator dump` alongside it. mobile-mcp is removed from this machine; do not reinstall it.
 
+## Test tiers
+
+Pick the lowest tier that can prove the change. Each tier proves what the one above it cannot. The PR body names the tier used and what was left to the next one.
+
+| Tier | Who and where | Proves | Does not prove |
+| --- | --- | --- | --- |
+| 1. Emulator | An agent on the AVD `dictus_api35` | UI, navigation, keyboard and IME, lifecycle, rotation, dictation from an injected WAV clip | A real microphone, real timings |
+| 2. Pixel 4, Andy | Andy with this skill on `99071FFAZ00EBN` | Real microphone, permissions, notifications, transcription time with Tiny and Base | A real voice, text quality, keyboard feel |
+| 3. Pixel 4, Pierre | Pierre, in a batch device test | Real voice, text quality, keyboard feel in real apps | Phones faster than the Pixel 4 |
+| 4. Out of reach | Nobody | Nothing | Small and larger models, anything that needs 8 GB of RAM |
+
+**1. Emulator.** This is the default tier for every PR and for ship-issue agents. One emulator runs at a time, and the agent that drives it holds a lock, as on the Pixel. It covers the UI, navigation, the Dictus keyboard in a real text field, activity and service lifecycle, rotation, and dictation fed by a WAV clip instead of the microphone. Three parts are **pending** and come in follow-up PRs: an x86_64 debug build (`whisper/build.gradle.kts` builds `arm64-v8a` and `armeabi-v7a` only today), the virtual microphone that plays the WAV clip, and the emulator lock. Until they land, do not claim a tier 1 proof of dictation.
+
+**2. Pixel 4, driven by Andy.** Use the steps below: Launch, Doctor, Drive, Evidence, Cleanup. This tier proves what needs the real hardware:
+
+- the microphone opens and closes: `DictationService started foreground with ACTION_START`, then `Recording cancelled, samples discarded` or `Transcribed text inserted: length=…` (see Drive);
+- `RECORD_AUDIO` is granted (Doctor) and the service runs in the foreground; notifications are denied for Dictus on this Pixel, so the proof is « 1 appli est active » in Quick Settings, not the notification;
+- transcription time with Tiny and Base, measured as the gap between the logcat timestamps of `confirmAndTranscribe: … samples captured` and `Transcribed text inserted`. The app logs no duration of its own. The Pixel 4 is the performance floor: a model too slow on it is too slow for Dictus.
+
+Andy's voice is not a test input. The room noise proves that the chain runs, not that the text is right.
+
+**3. Pixel 4, Pierre.** Pierre checks what only a person can judge: dictation with his own voice in French and in other languages, the quality of the text, and how the keyboard feels in his own apps. A PR that touches this tier carries the `needs-physical-test` label (see `docs/agents/physical-test-label.md`: the label is added by path, and only Titus removes it after Pierre validates). It is not merged before Pierre has tested it in a batch device test.
+
+A batch device test is a procedure, not a skill. Andy merges the branches of the pending labelled PRs into one local debug build, installs it on the Pixel with `adb install -r` (Pierre's data stays), and gives Pierre a checklist with one line per PR, `#<num> <what to try>`. Pierre answers `#<num> OK` or `#<num> KO <what went wrong>`, and Titus removes the label from each PR marked OK.
+
+**4. Out of reach.** Pierre has no phone more recent than the Pixel 4. Small, Small Q5, Medium and the models gated at 8 GB of RAM (`Nécessite 8 Go de RAM ou plus` in Modèles) cannot be validated. Some of them load on the Pixel 4 (Small Q5 is installed there), but nobody can check how they behave on the phones they are meant for. A PR that changes them says "not tested on a recent phone". These models never become the default model: the default stays Tiny (`ModelCatalog.DEFAULT_KEY`).
+
 ## Launch
 
 Take the Pixel lock first. Other threads install APKs on the same phone; the lock is the only thing that keeps two of them from installing over each other.
@@ -191,4 +218,8 @@ All executable, run from the repository root; all read `helpers/env.sh` (overrid
 | `helpers/cleanup.sh` | `cleanup.sh [run-dir]` | `PREFS same` / `PREFS differ: <keys>`, `CLEANUP OK run=…`, `NEXT: stop Argent…` |
 | `helpers/env.sh` | sourced, not run | `adbs`, `pixel_locked`, `device_mark`, `lock_is_mine`, `session_token`, `resolve_run`, `report`, `prefs_tool digest\|show`, `pull_prefs` |
 
-Keep the map honest as the app changes with `/maintain-verification-skill`.
+## Keeping the map current
+
+**A PR that adds or changes a screen or a user-facing feature MUST update `features/` and `features/screens.md` in the same PR.** Reuse the IDs of the iOS map (`getdictus/dictus-ios`, `.claude/skills/verify-dictus-ios/features/`) for the same feature or screen, and set the Android status (present, partial, absent, iOS-only). A feature that exists only on Android gets a new ID marked *Android-only*. Run `/maintain-verification-skill` from pstack (see `CLAUDE.md`) for a full pass over the map; a user has to invoke it.
+
+TODO sync after dictus-ios #762 merges: it adds four screen IDs, `kbd.transcribing`, `kbd.dictation-undo`, `kbd.numbers` and `kbd.symbols`. Add them to the "All IDs" table of `features/README.md` and to `features/screens.md` with their Android status, then update the totals.
