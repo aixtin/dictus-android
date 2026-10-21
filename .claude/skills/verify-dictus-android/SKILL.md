@@ -216,3 +216,32 @@ All executable, run from the repository root; all read `helpers/env.sh` (overrid
 | `helpers/env.sh` | sourced, not run | `adbs`, `pixel_locked`, `device_mark`, `lock_is_mine`, `session_token`, `resolve_run`, `report`, `prefs_tool digest\|show`, `pull_prefs` |
 
 Keep the map honest as the app changes with `/maintain-verification-skill`.
+
+## Emulator with a virtual microphone
+
+A dictation can also be checked on the `dictus_api35` emulator (x86_64, API 35) by playing a WAV file into it, so it runs without the Pixel and without anyone speaking. `helpers/emulator-mic.sh` creates a PipeWire virtual microphone (`pw-loopback`: a sink `dictus_feed_N` whose sound comes out of a source `dictus_mic_N`), boots the AVD with `PULSE_SOURCE=dictus_mic_N -allow-host-audio`, and plays a clip into the sink. The AVD config already has `hw.audioInput = yes`; the script warns if it does not.
+
+Use Tiny (or another Whisper model). Parakeet does not run on the emulator: the debug APK carries no x86_64 sherpa-onnx library.
+
+```bash
+H=.claude/skills/verify-dictus-android/helpers
+A=.claude/skills/verify-dictus-android/fixtures/audio
+$H/emulator-mic.sh build                       # ./gradlew assembleDebug -Pdictus.emulatorAbi=true, then --stop
+$H/emulator-mic.sh start 1                     # lock, virtual mic, boot; last line: SERIAL emulator-5554
+$H/emulator-mic.sh install 1                   # install -r, Dictus as IME, RECORD_AUDIO granted
+# Argent on emulator-5554: Home → « New dictation » (recording starts), then:
+$H/emulator-mic.sh play $A/fr-bonjour-test.wav 1
+# Argent: Stop → compare the text with $A/fr-bonjour-test.txt
+$H/emulator-mic.sh stop 1                      # emulator, virtual mic, lock; safe to run twice
+$H/emulator-mic.sh status
+```
+
+The Gradle property that adds the x86_64 libraries is named once, in `env.sh` (`DICTUS_EMULATOR_GRADLE_PROP`). Build before booting, never during: the machine has 12 GB of RAM.
+
+**The emulator lock** is `/home/pierre/Dev/dictus-proofs/.emulator-lock`, taken by `start` and released by `stop`. It is the Pixel lock's code (`lock.sh` with `DICTUS_LOCK_NAME=emulator`): an atomic `mkdir`, a token unique to the session in `owner` and in the session's `token.emulator`, release by the owner only. `DICTUS_LOCK_NAME=emulator $H/lock.sh status` shows the owner. `start` differs from the Pixel flow in three ways:
+
+- It waits while another session holds the lock, or while any `qemu-system` or Gradle daemon runs on the machine (retry every 2 min, give up after 30 min; `DICTUS_EMU_WAIT_MIN=0` refuses at once). It waits for a free machine before taking the lock, so a waiting session never blocks a build.
+- A lock older than 45 min while no `qemu-system` and no `pw-loopback` runs is stale: `start` removes it and prints its owner. The Pixel lock has no such rule.
+- A failed `start` undoes itself (emulator, virtual mic, lock). Hold the lock only while the emulator is in use: `stop` as soon as the check is done, then `mcp__argent__stop-all-simulator-servers { devices: ["emulator-5554"] }`.
+
+The clips in `fixtures/audio/` are synthesized French sentences (libespeak-ng, see its README), 16 kHz mono, each with its expected text in a `.txt` beside it. Evidence goes outside the repository, as for the Pixel.
