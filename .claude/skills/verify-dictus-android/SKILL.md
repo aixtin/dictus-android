@@ -190,7 +190,10 @@ adb -s emulator-5554 wait-for-device
 adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
 # ... drive with Argent (udid emulator-5554), then:
 adb -s emulator-5554 emu kill
+rm -r /home/pierre/Dev/dictus-proofs/.emulator-lock   # only if its owner file is yours
 ```
+
+Release the lock after `emu kill`, also when install or verification failed (kill the emulator first). Never remove a lock whose owner file is another thread's.
 
 Release never contains x86_64 whisper/trie, with or without the property.
 
