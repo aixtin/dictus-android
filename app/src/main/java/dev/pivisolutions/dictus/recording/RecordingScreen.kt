@@ -122,9 +122,9 @@ fun RecordingScreen(
         fun releaseMicrophone() {
             // A tap still waiting for the engine must not start recording in the background.
             currentMicGate.cancel()
-            if (ownsRecording && currentController?.state?.value is DictationState.Recording) {
-                currentController?.cancelRecording()
-            }
+            // Not gated on the Recording state: a start still queued in the service is
+            // still Idle here, and cancelling it is what keeps it from opening the mic.
+            if (ownsRecording) currentController?.cancelRecording()
             ownsRecording = false
         }
         val observer = LifecycleEventObserver { _, event ->

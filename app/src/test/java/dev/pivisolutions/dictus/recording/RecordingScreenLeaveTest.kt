@@ -79,6 +79,21 @@ class RecordingScreenLeaveTest {
     }
 
     @Test
+    fun `leaving before the queued start lands still cancels it`() {
+        // startForegroundService() is asynchronous: the state is still Idle when the user leaves.
+        controller.startsImmediately = false
+        setRecordingScreen()
+        assertEquals(1, controller.startRecordingCallCount)
+        assertEquals(DictationState.Idle, controller.state.value)
+
+        showScreen = false
+        composeTestRule.waitForIdle()
+
+        assertEquals(1, controller.cancelRecordingCallCount)
+        assertEquals(0, controller.confirmAndTranscribeCallCount)
+    }
+
+    @Test
     fun `leaving after a normal stop does not cancel`() {
         setRecordingScreen()
 
@@ -125,6 +140,8 @@ class RecordingScreenLeaveTest {
         override val state: StateFlow<DictationState> = mutableState
         override val engineState: StateFlow<SttEngineState> = MutableStateFlow(engine)
 
+        /** False mimics the service before its queued ACTION_START is delivered. */
+        var startsImmediately = true
         var startRecordingCallCount = 0
             private set
         var cancelRecordingCallCount = 0
@@ -136,7 +153,7 @@ class RecordingScreenLeaveTest {
 
         override fun startRecording() {
             startRecordingCallCount++
-            mutableState.value = DictationState.Recording()
+            if (startsImmediately) mutableState.value = DictationState.Recording()
         }
 
         override fun stopRecording(): FloatArray = FloatArray(0)
