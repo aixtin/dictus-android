@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <a href="screenshots/keyboard.png"><img src="screenshots/keyboard.png" alt="Dictus keyboard in action" width="300" /></a>
+  <a href="screenshots/keyboard.png"><img src="screenshots/keyboard.png" alt="Dictus keyboard in action" width="600" /></a>
 </p>
 
 ---
