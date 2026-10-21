@@ -17,7 +17,7 @@ Pick the lowest tier that can prove the change. Each tier proves what the one ab
 
 | Tier | Who and where | Proves | Does not prove |
 | --- | --- | --- | --- |
-| 1. Emulator | An agent on the AVD `dictus_api35` | UI, navigation, keyboard and IME, lifecycle, rotation, dictation from an injected WAV clip | A real microphone, real timings |
+| 1. Emulator | An agent on the AVD `dictus_api35` | UI, navigation, keyboard and IME, lifecycle, rotation, dictation from an injected WAV clip (pending) | A real microphone, real timings |
 | 2. Pixel 4, Andy | Andy with this skill on `99071FFAZ00EBN` | Real microphone, permissions, notifications, transcription time with Tiny and Base | A real voice, text quality, keyboard feel |
 | 3. Pixel 4, Pierre | Pierre, in a batch device test | Real voice, text quality, keyboard feel in real apps | Phones faster than the Pixel 4 |
 | 4. Out of reach | Nobody | Nothing | Small and larger models, anything that needs 8 GB of RAM |
