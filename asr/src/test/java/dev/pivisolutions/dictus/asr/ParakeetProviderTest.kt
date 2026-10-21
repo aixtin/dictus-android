@@ -2,9 +2,11 @@ package dev.pivisolutions.dictus.asr
 
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import timber.log.Timber
 import java.io.File
 
 class ParakeetProviderTest {
@@ -38,6 +40,30 @@ class ParakeetProviderTest {
 
         assertFalse(provider.initialize(ctcModelPath()))
         assertFalse(provider.isReady)
+    }
+
+    @Test
+    fun `mismatched JNI fails initialization without throwing and logs the real error`() = runTest {
+        // Library present but its JNI does not match the Kotlin bindings (e.g. sherpa-onnx upgrade).
+        val provider = ParakeetProvider(
+            createRecognizer = { throw NoSuchMethodError("newFromFile") },
+        )
+        val messages = mutableListOf<String>()
+        val tree = object : Timber.Tree() {
+            override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+                messages += message
+            }
+        }
+        Timber.plant(tree)
+        try {
+            assertFalse(provider.initialize(ctcModelPath()))
+            assertFalse(provider.isReady)
+        } finally {
+            Timber.uproot(tree)
+        }
+
+        assertTrue(messages.any { it.startsWith("Parakeet native init failed: NoSuchMethodError: newFromFile") })
+        assertTrue(messages.none { "unavailable" in it })
     }
 
     @Test(expected = OutOfMemoryError::class)

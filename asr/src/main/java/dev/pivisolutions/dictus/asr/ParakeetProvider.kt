@@ -1,5 +1,6 @@
 package dev.pivisolutions.dictus.asr
 
+import android.os.Build
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineNemoEncDecCtcModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
@@ -105,11 +106,18 @@ class ParakeetProvider(
         } catch (e: LinkageError) {
             // sherpa-onnx ships arm64-v8a and armeabi-v7a only. On an x86_64 device or
             // emulator the first load throws UnsatisfiedLinkError, and every later
-            // attempt NoClassDefFoundError (the class init already failed). Both are
-            // LinkageError: Parakeet is unavailable here, so fail cleanly instead of
-            // crashing. Other Errors (OutOfMemoryError...) still propagate.
-            Timber.e(e, "ParakeetProvider: sherpa-onnx native library unavailable on %s, Parakeet disabled",
-                System.getProperty("os.arch"))
+            // attempt NoClassDefFoundError (the class init already failed). Any other
+            // LinkageError (NoSuchMethodError, ExceptionInInitializerError...) means the
+            // library loaded but its JNI does not match, e.g. after a sherpa-onnx upgrade.
+            // Either way fail cleanly instead of crashing, but log what really happened.
+            // Other Errors (OutOfMemoryError...) still propagate.
+            when (e) {
+                is UnsatisfiedLinkError, is NoClassDefFoundError ->
+                    Timber.e(e, "ParakeetProvider: sherpa-onnx native library unavailable on %s, Parakeet disabled",
+                        Build.SUPPORTED_ABIS?.firstOrNull())
+                else ->
+                    Timber.e(e, "Parakeet native init failed: %s: %s", e.javaClass.simpleName, e.message)
+            }
             false
         }
     }
