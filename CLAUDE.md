@@ -67,3 +67,20 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 ### Domain docs
 
 Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Verification and test tiers
+
+Use the `verify-dictus-android` skill (`.claude/skills/verify-dictus-android/`) for any change with a user-visible effect, before opening the PR, and whenever a change has to be proven on Pierre's Pixel 4.
+
+A PR that adds or changes a screen or a user-facing feature MUST update the skill's `features/` and `features/screens.md` in the same PR, with the same IDs as the iOS map (`getdictus/dictus-ios`, `.claude/skills/verify-dictus-ios/features/`).
+
+Four test tiers, detailed in the skill's `SKILL.md` → Test tiers:
+
+1. Emulator: the default for every PR. The x86_64 build and the virtual microphone are pending.
+2. Pixel 4 driven by Andy: real microphone, permissions, transcription time with Tiny, Base and Small Q5 (the onboarding model below 8 GB of RAM).
+3. Pixel 4 with Pierre: real voice, text quality, keyboard feel. Label `needs-physical-test` and a batch device test.
+4. Out of reach: models larger than Small Q5, and Parakeet 0.6B v3 (needs 8 GB of RAM). The PR says "not tested on a recent phone".
+
+### pstack
+
+pstack (<https://github.com/cursor/plugins/tree/main/pstack>) is the reference toolbox for agent workflows. It provides `create-verification-skill` and `maintain-verification-skill` (both user-invoked only), `unslop` for prose, `tdd`, `poteto-mode` and a set of engineering principle skills. It is enabled for this repo through `.claude/settings.json`; Claude Code asks you to trust the `cursor-plugins` marketplace on first use.
