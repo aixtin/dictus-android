@@ -21,6 +21,16 @@ android {
         }
     }
 
+    // x86_64 only in debug (emulator), merged with the ARM ABIs of defaultConfig.
+    // Same rule as :whisper; release keeps arm64-v8a and armeabi-v7a only.
+    buildTypes {
+        debug {
+            ndk {
+                abiFilters += "x86_64"
+            }
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

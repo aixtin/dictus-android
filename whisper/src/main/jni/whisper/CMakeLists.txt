@@ -35,6 +35,19 @@ set(
 
 find_library(LOG_LIB log)
 
+# x86_64 is built for debug only, to run on the emulator. Pin ggml to the Android
+# x86_64 ABI baseline (SSE4.2 + POPCNT, guaranteed on every x86_64 Android device)
+# rather than AVX/AVX2/FMA/F16C, which an emulator CPU model does not always expose:
+# an unsupported instruction would crash with SIGILL instead of transcribing slowly.
+# ggml already defaults these off when cross-compiling; setting them makes it explicit.
+if (${ANDROID_ABI} STREQUAL "x86_64")
+    set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
+    set(GGML_SSE42  ON  CACHE BOOL "" FORCE)
+    foreach(ggml_x86_ext AVX AVX2 AVX_VNNI AVX512 FMA F16C BMI2)
+        set(GGML_${ggml_x86_ext} OFF CACHE BOOL "" FORCE)
+    endforeach()
+endif ()
+
 include(FetchContent)
 
 function(build_library target_name)

@@ -33,6 +33,17 @@ android {
         }
     }
 
+    // x86_64 only in debug, so the app transcribes on an x86_64 emulator. AGP merges
+    // buildType ndk.abiFilters with defaultConfig's: debug builds arm64-v8a, armeabi-v7a
+    // and x86_64; release keeps the two ARM ABIs it ships on the Play Store.
+    buildTypes {
+        debug {
+            ndk {
+                abiFilters += "x86_64"
+            }
+        }
+    }
+
     externalNativeBuild {
         cmake {
             path = file("src/main/jni/whisper/CMakeLists.txt")
