@@ -23,12 +23,14 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +43,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.pivisolutions.dictus.R
 import dev.pivisolutions.dictus.core.service.DictationController
 import dev.pivisolutions.dictus.core.service.DictationState
@@ -91,11 +96,44 @@ fun RecordingScreen(
         ?: remember { mutableStateOf(SttEngineState.Cold as SttEngineState) }
     val micGate = remember(dictationController) { PendingMicGate() }
 
+    // True while a recording this screen started has not been stopped yet. The service is
+    // shared with the keyboard, so leaving must never cancel a dictation the IME owns.
+    var ownsRecording by remember { mutableStateOf(false) }
+
     fun runGateCommand(command: MicGateCommand) {
         when (command) {
             MicGateCommand.PREWARM -> dictationController?.prewarmEngine()
-            MicGateCommand.START_RECORDING -> dictationController?.startRecording()
+            MicGateCommand.START_RECORDING -> {
+                ownsRecording = true
+                dictationController?.startRecording()
+            }
             MicGateCommand.NONE -> Unit
+        }
+    }
+
+    // Leaving the screen releases the microphone (#142): the back arrow, the system back
+    // gesture, any other navigation, activity recreation (rotation) and the app going to the
+    // background all end here. It is the discard path, so nothing is transcribed. A stop
+    // already tapped is untouched: its result only lives on this screen.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentController by rememberUpdatedState(dictationController)
+    val currentMicGate by rememberUpdatedState(micGate)
+    DisposableEffect(lifecycleOwner) {
+        fun releaseMicrophone() {
+            // A tap still waiting for the engine must not start recording in the background.
+            currentMicGate.cancel()
+            if (ownsRecording && currentController?.state?.value is DictationState.Recording) {
+                currentController?.cancelRecording()
+            }
+            ownsRecording = false
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) releaseMicrophone()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            releaseMicrophone()
         }
     }
 
@@ -330,6 +368,7 @@ fun RecordingScreen(
                             .clip(CircleShape)
                             .background(DictusColors.Recording)
                             .clickable {
+                                ownsRecording = false
                                 scope.launch {
                                     val result = dictationController?.confirmAndTranscribe(
                                         TranscriptionRetention.PERSIST_HISTORY,
